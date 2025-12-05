@@ -44,7 +44,7 @@ USE SCHEMA RAW;
 -- STORED PROCEDURES FOR MULTI-STATEMENT TASKS
 -- ============================================================================
 
--- Procedure to process raw students
+-- Procedure to process raw students (uses PARSE_JSON for string payload)
 CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_STUDENTS()
 RETURNS VARCHAR
 LANGUAGE SQL
@@ -55,20 +55,20 @@ BEGIN
     MERGE INTO CURATED.DIM_STUDENTS tgt
     USING (
         SELECT 
-            payload:student_id::VARCHAR AS student_id,
-            payload:canvas_user_id::NUMBER AS canvas_user_id,
-            payload:first_name::VARCHAR AS first_name,
-            payload:last_name::VARCHAR AS last_name,
-            payload:email::VARCHAR AS email,
-            payload:major::VARCHAR AS major,
-            payload:classification::VARCHAR AS classification,
-            payload:enrollment_status::VARCHAR AS enrollment_status,
-            payload:enrollment_date::DATE AS enrollment_date,
-            payload:expected_graduation::DATE AS expected_graduation,
-            payload:gpa::DECIMAL(3,2) AS gpa,
-            payload:advisor_id::VARCHAR AS advisor_id
-        FROM STM_RAW_STUDENTS
-        WHERE METADATA$ACTION = 'INSERT'
+            PARSE_JSON(payload):student_id::VARCHAR AS student_id,
+            PARSE_JSON(payload):canvas_user_id::NUMBER AS canvas_user_id,
+            PARSE_JSON(payload):first_name::VARCHAR AS first_name,
+            PARSE_JSON(payload):last_name::VARCHAR AS last_name,
+            PARSE_JSON(payload):email::VARCHAR AS email,
+            PARSE_JSON(payload):major::VARCHAR AS major,
+            PARSE_JSON(payload):classification::VARCHAR AS classification,
+            PARSE_JSON(payload):enrollment_status::VARCHAR AS enrollment_status,
+            PARSE_JSON(payload):enrollment_date::DATE AS enrollment_date,
+            PARSE_JSON(payload):expected_graduation::DATE AS expected_graduation,
+            PARSE_JSON(payload):gpa::DECIMAL(3,2) AS gpa,
+            PARSE_JSON(payload):advisor_id::VARCHAR AS advisor_id
+        FROM RAW_STUDENTS
+        WHERE processing_status = 'PENDING'
     ) src
     ON tgt.student_id = src.student_id
     WHEN MATCHED THEN UPDATE SET
@@ -101,7 +101,7 @@ BEGIN
 END;
 $$;
 
--- Procedure to process raw courses
+-- Procedure to process raw courses (uses PARSE_JSON for string payload)
 CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_COURSES()
 RETURNS VARCHAR
 LANGUAGE SQL
@@ -111,23 +111,23 @@ BEGIN
     MERGE INTO CURATED.DIM_COURSES tgt
     USING (
         SELECT 
-            payload:course_id::VARCHAR AS course_id,
-            payload:canvas_course_id::NUMBER AS canvas_course_id,
-            payload:course_code::VARCHAR AS course_code,
-            payload:course_name::VARCHAR AS course_name,
-            payload:department::VARCHAR AS department,
-            payload:credit_hours::NUMBER AS credit_hours,
-            payload:course_level::VARCHAR AS course_level,
-            payload:delivery_mode::VARCHAR AS delivery_mode,
-            payload:term::VARCHAR AS term,
-            payload:academic_year::VARCHAR AS academic_year,
-            payload:instructor_id::VARCHAR AS instructor_id,
-            payload:instructor_name::VARCHAR AS instructor_name,
-            payload:start_date::DATE AS start_date,
-            payload:end_date::DATE AS end_date,
-            payload:max_enrollment::NUMBER AS max_enrollment
-        FROM STM_RAW_COURSES
-        WHERE METADATA$ACTION = 'INSERT'
+            PARSE_JSON(payload):course_id::VARCHAR AS course_id,
+            PARSE_JSON(payload):canvas_course_id::NUMBER AS canvas_course_id,
+            PARSE_JSON(payload):course_code::VARCHAR AS course_code,
+            PARSE_JSON(payload):course_name::VARCHAR AS course_name,
+            PARSE_JSON(payload):department::VARCHAR AS department,
+            PARSE_JSON(payload):credit_hours::NUMBER AS credit_hours,
+            PARSE_JSON(payload):course_level::VARCHAR AS course_level,
+            PARSE_JSON(payload):delivery_mode::VARCHAR AS delivery_mode,
+            PARSE_JSON(payload):term::VARCHAR AS term,
+            PARSE_JSON(payload):academic_year::VARCHAR AS academic_year,
+            PARSE_JSON(payload):instructor_id::VARCHAR AS instructor_id,
+            PARSE_JSON(payload):instructor_name::VARCHAR AS instructor_name,
+            PARSE_JSON(payload):start_date::DATE AS start_date,
+            PARSE_JSON(payload):end_date::DATE AS end_date,
+            PARSE_JSON(payload):max_enrollment::NUMBER AS max_enrollment
+        FROM RAW_COURSES
+        WHERE processing_status = 'PENDING'
     ) src
     ON tgt.course_id = src.course_id
     WHEN MATCHED THEN UPDATE SET
@@ -161,6 +161,160 @@ BEGIN
     WHERE processing_status = 'PENDING';
     
     RETURN 'Courses processed successfully';
+END;
+$$;
+
+-- Procedure to process raw enrollments (uses PARSE_JSON for string payload)
+CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_ENROLLMENTS()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    MERGE INTO CURATED.FACT_ENROLLMENTS tgt
+    USING (
+        SELECT 
+            PARSE_JSON(r.payload):enrollment_id::VARCHAR AS enrollment_id,
+            s.student_key,
+            c.course_key,
+            PARSE_JSON(r.payload):student_id::VARCHAR AS student_id,
+            PARSE_JSON(r.payload):course_id::VARCHAR AS course_id,
+            PARSE_JSON(r.payload):enrollment_state::VARCHAR AS enrollment_state,
+            PARSE_JSON(r.payload):enrollment_type::VARCHAR AS enrollment_type,
+            PARSE_JSON(r.payload):enrolled_at::TIMESTAMP_NTZ AS enrolled_at,
+            PARSE_JSON(r.payload):final_grade::VARCHAR AS final_grade,
+            PARSE_JSON(r.payload):final_score::DECIMAL(5,2) AS final_score
+        FROM RAW_ENROLLMENTS r
+        LEFT JOIN CURATED.DIM_STUDENTS s ON PARSE_JSON(r.payload):student_id::VARCHAR = s.student_id
+        LEFT JOIN CURATED.DIM_COURSES c ON PARSE_JSON(r.payload):course_id::VARCHAR = c.course_id
+        WHERE r.processing_status = 'PENDING'
+    ) src
+    ON tgt.enrollment_id = src.enrollment_id
+    WHEN MATCHED THEN UPDATE SET
+        enrollment_state = src.enrollment_state,
+        final_grade = src.final_grade,
+        final_score = src.final_score,
+        updated_at = CURRENT_TIMESTAMP()
+    WHEN NOT MATCHED THEN INSERT (
+        enrollment_id, student_key, course_key, student_id, course_id,
+        enrollment_state, enrollment_type, enrolled_at, final_grade, final_score
+    ) VALUES (
+        src.enrollment_id, src.student_key, src.course_key, src.student_id, src.course_id,
+        src.enrollment_state, src.enrollment_type, src.enrolled_at, src.final_grade, src.final_score
+    );
+    
+    UPDATE RAW_ENROLLMENTS
+    SET processing_status = 'PROCESSED'
+    WHERE processing_status = 'PENDING';
+    
+    RETURN 'Enrollments processed successfully';
+END;
+$$;
+
+-- Procedure to process raw assignments (uses PARSE_JSON for string payload)
+CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_ASSIGNMENTS()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    MERGE INTO CURATED.DIM_ASSIGNMENTS tgt
+    USING (
+        SELECT 
+            PARSE_JSON(payload):assignment_id::VARCHAR AS assignment_id,
+            PARSE_JSON(payload):canvas_assignment_id::NUMBER AS canvas_assignment_id,
+            PARSE_JSON(payload):course_id::VARCHAR AS course_id,
+            PARSE_JSON(payload):assignment_name::VARCHAR AS assignment_name,
+            PARSE_JSON(payload):assignment_type::VARCHAR AS assignment_type,
+            PARSE_JSON(payload):points_possible::DECIMAL(10,2) AS points_possible,
+            PARSE_JSON(payload):due_date::TIMESTAMP_NTZ AS due_date,
+            PARSE_JSON(payload):unlock_date::TIMESTAMP_NTZ AS unlock_date,
+            PARSE_JSON(payload):lock_date::TIMESTAMP_NTZ AS lock_date,
+            PARSE_JSON(payload):submission_types::VARCHAR AS submission_types,
+            PARSE_JSON(payload):is_group_assignment::BOOLEAN AS is_group_assignment,
+            PARSE_JSON(payload):weight::DECIMAL(5,2) AS weight
+        FROM RAW_ASSIGNMENTS
+        WHERE processing_status = 'PENDING'
+    ) src
+    ON tgt.assignment_id = src.assignment_id
+    WHEN MATCHED THEN UPDATE SET
+        assignment_name = src.assignment_name,
+        points_possible = src.points_possible,
+        due_date = src.due_date,
+        weight = src.weight,
+        updated_at = CURRENT_TIMESTAMP()
+    WHEN NOT MATCHED THEN INSERT (
+        assignment_id, canvas_assignment_id, course_id, assignment_name,
+        assignment_type, points_possible, due_date, unlock_date, lock_date,
+        submission_types, is_group_assignment, weight
+    ) VALUES (
+        src.assignment_id, src.canvas_assignment_id, src.course_id, src.assignment_name,
+        src.assignment_type, src.points_possible, src.due_date, src.unlock_date, src.lock_date,
+        src.submission_types, src.is_group_assignment, src.weight
+    );
+    
+    UPDATE RAW_ASSIGNMENTS
+    SET processing_status = 'PROCESSED'
+    WHERE processing_status = 'PENDING';
+    
+    RETURN 'Assignments processed successfully';
+END;
+$$;
+
+-- Procedure to process raw submissions (uses PARSE_JSON for string payload)
+CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_SUBMISSIONS()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    MERGE INTO CURATED.FACT_SUBMISSIONS tgt
+    USING (
+        SELECT 
+            PARSE_JSON(r.payload):submission_id::VARCHAR AS submission_id,
+            s.student_key,
+            a.assignment_key,
+            PARSE_JSON(r.payload):student_id::VARCHAR AS student_id,
+            PARSE_JSON(r.payload):assignment_id::VARCHAR AS assignment_id,
+            PARSE_JSON(r.payload):submitted_at::TIMESTAMP_NTZ AS submitted_at,
+            PARSE_JSON(r.payload):graded_at::TIMESTAMP_NTZ AS graded_at,
+            PARSE_JSON(r.payload):score::DECIMAL(10,2) AS score,
+            PARSE_JSON(r.payload):grade::VARCHAR AS grade,
+            PARSE_JSON(r.payload):points_possible::DECIMAL(10,2) AS points_possible,
+            PARSE_JSON(r.payload):percentage::DECIMAL(5,2) AS percentage,
+            PARSE_JSON(r.payload):submission_type::VARCHAR AS submission_type,
+            PARSE_JSON(r.payload):attempt_number::NUMBER AS attempt_number,
+            PARSE_JSON(r.payload):late_flag::BOOLEAN AS late_flag,
+            PARSE_JSON(r.payload):missing_flag::BOOLEAN AS missing_flag,
+            PARSE_JSON(r.payload):excused_flag::BOOLEAN AS excused_flag,
+            PARSE_JSON(r.payload):grader_id::VARCHAR AS grader_id
+        FROM RAW_SUBMISSIONS r
+        LEFT JOIN CURATED.DIM_STUDENTS s ON PARSE_JSON(r.payload):student_id::VARCHAR = s.student_id
+        LEFT JOIN CURATED.DIM_ASSIGNMENTS a ON PARSE_JSON(r.payload):assignment_id::VARCHAR = a.assignment_id
+        WHERE r.processing_status = 'PENDING'
+    ) src
+    ON tgt.submission_id = src.submission_id
+    WHEN MATCHED THEN UPDATE SET
+        graded_at = src.graded_at,
+        score = src.score,
+        grade = src.grade,
+        percentage = src.percentage,
+        updated_at = CURRENT_TIMESTAMP()
+    WHEN NOT MATCHED THEN INSERT (
+        submission_id, student_key, assignment_key, student_id, assignment_id,
+        submitted_at, graded_at, score, grade, points_possible, percentage,
+        submission_type, attempt_number, late_flag, missing_flag, excused_flag, grader_id
+    ) VALUES (
+        src.submission_id, src.student_key, src.assignment_key, src.student_id, src.assignment_id,
+        src.submitted_at, src.graded_at, src.score, src.grade, src.points_possible, src.percentage,
+        src.submission_type, src.attempt_number, src.late_flag, src.missing_flag, src.excused_flag, src.grader_id
+    );
+    
+    UPDATE RAW_SUBMISSIONS
+    SET processing_status = 'PROCESSED'
+    WHERE processing_status = 'PENDING';
+    
+    RETURN 'Submissions processed successfully';
 END;
 $$;
 
@@ -294,6 +448,22 @@ BEGIN
 END;
 $$;
 
+-- Master procedure to process all raw data
+CREATE OR REPLACE PROCEDURE PROC_PROCESS_ALL_RAW_DATA()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    CALL PROC_PROCESS_RAW_STUDENTS();
+    CALL PROC_PROCESS_RAW_COURSES();
+    CALL PROC_PROCESS_RAW_ENROLLMENTS();
+    CALL PROC_PROCESS_RAW_ASSIGNMENTS();
+    CALL PROC_PROCESS_RAW_SUBMISSIONS();
+    RETURN 'All raw data processed successfully';
+END;
+$$;
+
 -- ============================================================================
 -- TASK 1: Generate New Dummy Data (Simulates incoming Canvas data)
 -- ============================================================================
@@ -314,22 +484,20 @@ AS
     CALL GENERATE_DUMMY_COURSES(5);
 
 -- ============================================================================
--- TASK 2: Process Raw Data Through Streams
+-- TASK 2: Process Raw Data
 -- ============================================================================
 
 CREATE OR REPLACE TASK TASK_PROCESS_RAW_STUDENTS
     WAREHOUSE = FGCU_TRANSFORM_WH
-    COMMENT = 'Processes new student records from stream to curated layer'
+    COMMENT = 'Processes new student records to curated layer'
     AFTER TASK_GENERATE_DUMMY_DATA
-    WHEN SYSTEM$STREAM_HAS_DATA('STM_RAW_STUDENTS')
 AS
     CALL PROC_PROCESS_RAW_STUDENTS();
 
 CREATE OR REPLACE TASK TASK_PROCESS_RAW_COURSES
     WAREHOUSE = FGCU_TRANSFORM_WH
-    COMMENT = 'Processes new course records from stream to curated layer'
+    COMMENT = 'Processes new course records to curated layer'
     AFTER TASK_GENERATE_DUMMY_COURSES
-    WHEN SYSTEM$STREAM_HAS_DATA('STM_RAW_COURSES')
 AS
     CALL PROC_PROCESS_RAW_COURSES();
 
