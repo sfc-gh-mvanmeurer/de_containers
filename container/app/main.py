@@ -109,10 +109,10 @@ async def health_check():
         raise HTTPException(status_code=503, detail=str(e))
 
 
-@app.get("/status", response_model=ETLStatusResponse)
-async def get_status():
+@app.get("/status_get", response_model=ETLStatusResponse)
+async def get_status_http():
     """
-    Get current ETL pipeline status.
+    Get current ETL pipeline status (HTTP GET version).
     Returns information about running jobs and statistics.
     """
     return ETLStatusResponse(
@@ -124,42 +124,7 @@ async def get_status():
     )
 
 
-@app.post("/run_etl")
-async def run_etl(request: ETLJobRequest, background_tasks: BackgroundTasks):
-    """
-    Execute ETL job.
-    
-    Supported job types:
-    - FULL_REFRESH: Complete data refresh
-    - INCREMENTAL: Process only new/changed data
-    - STUDENTS: Process student data only
-    - COURSES: Process course data only
-    - ENROLLMENTS: Process enrollment data only
-    - SUBMISSIONS: Process submission data only
-    - ACTIVITY: Process activity log data only
-    """
-    job_id = f"job_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-    
-    logger.info(f"Starting ETL job: {job_id}, type: {request.job_type}")
-    
-    # Add to running jobs
-    job_state["running_jobs"].append({
-        "job_id": job_id,
-        "job_type": request.job_type,
-        "started_at": datetime.utcnow().isoformat()
-    })
-    
-    # Run in background
-    background_tasks.add_task(execute_etl_job, job_id, request.job_type, request.parameters)
-    
-    return JSONResponse(
-        status_code=202,
-        content={
-            "message": "ETL job started",
-            "job_id": job_id,
-            "job_type": request.job_type
-        }
-    )
+# Old async endpoint removed - now using Snowflake service function format
 
 
 async def execute_etl_job(job_id: str, job_type: str, parameters: dict):
@@ -210,65 +175,7 @@ async def execute_etl_job(job_id: str, job_type: str, parameters: dict):
         ]
 
 
-@app.post("/transform")
-async def run_transformation(request: TransformationRequest, background_tasks: BackgroundTasks):
-    """
-    Execute a specific transformation.
-    
-    Supported transformations:
-    - student_dimension: Update student dimension table
-    - course_dimension: Update course dimension table
-    - assignment_dimension: Update assignment dimension table
-    - enrollment_fact: Process enrollment facts
-    - submission_fact: Process submission facts
-    - activity_fact: Process activity log facts
-    - student_performance_agg: Update student performance aggregations
-    - course_analytics_agg: Update course analytics aggregations
-    """
-    logger.info(f"Starting transformation: {request.transformation_name}")
-    
-    background_tasks.add_task(
-        execute_transformation,
-        request.transformation_name,
-        request.params
-    )
-    
-    return JSONResponse(
-        status_code=202,
-        content={
-            "message": "Transformation started",
-            "transformation": request.transformation_name
-        }
-    )
-
-
-async def execute_transformation(transformation_name: str, params: dict):
-    """Execute transformation in background."""
-    try:
-        with SnowflakeConnection() as session:
-            engine = TransformationEngine(session)
-            
-            method_map = {
-                "student_dimension": engine.transform_students,
-                "course_dimension": engine.transform_courses,
-                "assignment_dimension": engine.transform_assignments,
-                "enrollment_fact": engine.transform_enrollments,
-                "submission_fact": engine.transform_submissions,
-                "activity_fact": engine.transform_activity_logs,
-                "student_performance_agg": engine.aggregate_student_performance,
-                "course_analytics_agg": engine.aggregate_course_analytics
-            }
-            
-            if transformation_name in method_map:
-                records = method_map[transformation_name]()
-                job_state["records_processed"] += records
-                logger.info(f"Transformation {transformation_name} completed. Records: {records}")
-            else:
-                raise ValueError(f"Unknown transformation: {transformation_name}")
-                
-    except Exception as e:
-        logger.error(f"Transformation {transformation_name} failed: {e}")
-        job_state["errors"] += 1
+# Old transform endpoint removed - now using Snowflake service function format below
 
 
 @app.get("/metrics")
@@ -280,6 +187,141 @@ async def get_metrics():
         "active_jobs": len(job_state["running_jobs"]),
         "uptime": "healthy"
     }
+
+
+# ============================================================================
+# SNOWFLAKE SERVICE FUNCTION ENDPOINTS
+# These handle Snowflake's specific request/response format for service functions
+# Format: {"data": [[row_index, arg1, arg2, ...], ...]}
+# ============================================================================
+
+class SnowflakeRequest(BaseModel):
+    """Snowflake service function request format."""
+    data: list
+
+@app.post("/run_etl")
+async def run_etl_snowflake(request: SnowflakeRequest):
+    """
+    Handle Snowflake service function calls for ETL.
+    Snowflake sends: {"data": [[0, "JOB_TYPE"]]}
+    We return: {"data": [[0, "result message"]]}
+    """
+    results = []
+    
+    for row in request.data:
+        row_index = row[0]
+        job_type = row[1] if len(row) > 1 else "FULL_REFRESH"
+        
+        logger.info(f"Snowflake service function called with job_type: {job_type}")
+        
+        try:
+            with SnowflakeConnection() as session:
+                pipeline = DataIngestionPipeline(session)
+                engine = TransformationEngine(session)
+                
+                records = 0
+                
+                if job_type == "FULL_REFRESH":
+                    records += pipeline.process_all_raw_data()
+                    records += engine.run_all_transformations()
+                elif job_type == "INCREMENTAL":
+                    records += pipeline.process_incremental()
+                    records += engine.run_incremental_transformations()
+                elif job_type == "STUDENTS":
+                    records += pipeline.process_students()
+                    records += engine.transform_students()
+                elif job_type == "COURSES":
+                    records += pipeline.process_courses()
+                    records += engine.transform_courses()
+                elif job_type == "ENROLLMENTS":
+                    records += pipeline.process_enrollments()
+                    records += engine.transform_enrollments()
+                elif job_type == "SUBMISSIONS":
+                    records += pipeline.process_submissions()
+                    records += engine.transform_submissions()
+                elif job_type == "ACTIVITY":
+                    records += pipeline.process_activity_logs()
+                    records += engine.transform_activity_logs()
+                else:
+                    results.append([row_index, f"Unknown job type: {job_type}"])
+                    continue
+                
+                job_state["records_processed"] += records
+                job_state["last_run"] = datetime.utcnow().isoformat()
+                
+                results.append([row_index, f"ETL {job_type} completed. Records processed: {records}"])
+                logger.info(f"ETL {job_type} completed. Records: {records}")
+                
+        except Exception as e:
+            logger.error(f"ETL job failed: {e}")
+            job_state["errors"] += 1
+            results.append([row_index, f"Error: {str(e)}"])
+    
+    return {"data": results}
+
+
+@app.post("/status")
+async def get_status_snowflake(request: SnowflakeRequest):
+    """
+    Handle Snowflake service function calls for status.
+    Returns current ETL status in Snowflake format.
+    """
+    import json
+    
+    results = []
+    for row in request.data:
+        row_index = row[0]
+        status = {
+            "status": "running" if job_state["running_jobs"] else "idle",
+            "last_run": job_state["last_run"],
+            "records_processed": job_state["records_processed"],
+            "errors": job_state["errors"],
+            "running_jobs": len(job_state["running_jobs"])
+        }
+        results.append([row_index, json.dumps(status)])
+    
+    return {"data": results}
+
+
+@app.post("/transform")
+async def transform_snowflake(request: SnowflakeRequest):
+    """
+    Handle Snowflake service function calls for transformations.
+    Snowflake sends: {"data": [[0, "transformation_name"]]}
+    """
+    results = []
+    
+    for row in request.data:
+        row_index = row[0]
+        transformation_name = row[1] if len(row) > 1 else "student_dimension"
+        
+        try:
+            with SnowflakeConnection() as session:
+                engine = TransformationEngine(session)
+                
+                method_map = {
+                    "student_dimension": engine.transform_students,
+                    "course_dimension": engine.transform_courses,
+                    "assignment_dimension": engine.transform_assignments,
+                    "enrollment_fact": engine.transform_enrollments,
+                    "submission_fact": engine.transform_submissions,
+                    "activity_fact": engine.transform_activity_logs,
+                    "student_performance_agg": engine.aggregate_student_performance,
+                    "course_analytics_agg": engine.aggregate_course_analytics
+                }
+                
+                if transformation_name in method_map:
+                    records = method_map[transformation_name]()
+                    job_state["records_processed"] += records
+                    results.append([row_index, f"Transformation {transformation_name} completed. Records: {records}"])
+                else:
+                    results.append([row_index, f"Unknown transformation: {transformation_name}"])
+                    
+        except Exception as e:
+            logger.error(f"Transformation failed: {e}")
+            results.append([row_index, f"Error: {str(e)}"])
+    
+    return {"data": results}
 
 
 if __name__ == "__main__":
