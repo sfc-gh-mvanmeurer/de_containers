@@ -49,8 +49,8 @@ fgcu_de_containers/
 ### Step 1: Clone and Configure
 
 ```bash
-git clone https://github.com/sfc-gh-mvanmeurer/fgcu_de_containers.git
-cd fgcu_de_containers
+git clone https://github.com/sfc-gh-mvanmeurer/de_containers.git
+cd de_containers
 ```
 
 ### Step 2: Set Up Snowflake Infrastructure
