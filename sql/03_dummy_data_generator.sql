@@ -43,7 +43,7 @@ RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python', 'faker')
 HANDLER = 'generate_students'
 AS
-'
+$$
 import json
 from faker import Faker
 from snowflake.snowpark import Session
@@ -65,12 +65,11 @@ def generate_students(session: Session, num_students: int) -> str:
     classifications = ["Freshman", "Sophomore", "Junior", "Senior"]
     statuses = ["Active", "Active", "Active", "Active", "Inactive", "Probation"]
     
-    students = []
+    count = 0
     for i in range(num_students):
         student_id = "U" + str(random.randint(10000000, 99999999))
         classification = random.choice(classifications)
         
-        # Set enrollment year based on classification
         enrollment_years_ago = {"Freshman": 0, "Sophomore": 1, "Junior": 2, "Senior": 3}
         enrollment_year = 2024 - enrollment_years_ago[classification]
         
@@ -88,18 +87,18 @@ def generate_students(session: Session, num_students: int) -> str:
             "gpa": round(random.uniform(2.0, 4.0), 2),
             "advisor_id": "ADV" + str(random.randint(1000, 9999))
         }
-        students.append(student)
+        
+        # Use Snowpark DataFrame API to insert
+        df = session.create_dataframe([[json.dumps(student), "synthetic_data_generator"]], 
+                                       schema=["payload_str", "file_name"])
+        df.select(
+            df["payload_str"].cast("VARIANT").alias("payload"),
+            df["file_name"]
+        ).write.mode("append").save_as_table("RAW_STUDENTS", column_order="name")
+        count += 1
     
-    # Insert into RAW_STUDENTS using parameterized approach
-    for student in students:
-        payload_json = json.dumps(student)
-        # Escape single quotes for SQL
-        payload_escaped = payload_json.replace("''", "''''").replace("'", "''")
-        sql = "INSERT INTO RAW_STUDENTS (payload, file_name) SELECT PARSE_JSON(''" + payload_escaped + "''), ''synthetic_data_generator''"
-        session.sql(sql).collect()
-    
-    return "Successfully generated " + str(num_students) + " student records"
-';
+    return "Successfully generated " + str(count) + " student records"
+$$;
 
 -- ============================================================================
 -- STORED PROCEDURE: Generate Course Data
@@ -112,7 +111,7 @@ RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python', 'faker')
 HANDLER = 'generate_courses'
 AS
-'
+$$
 import json
 from faker import Faker
 from snowflake.snowpark import Session
@@ -154,13 +153,12 @@ def generate_courses(session: Session, num_courses: int) -> str:
     delivery_modes = ["In-Person", "Online", "Hybrid"]
     terms = ["Fall 2024", "Spring 2025"]
     
-    courses = []
+    count = 0
     for i in range(num_courses):
         dept_code = random.choice(list(departments.keys()))
         dept_name = departments[dept_code]
         course_num = random.randint(1000, 4999)
         
-        # Get appropriate course name or generate one
         if dept_code in course_names:
             name = random.choice(course_names[dept_code])
         else:
@@ -186,17 +184,17 @@ def generate_courses(session: Session, num_courses: int) -> str:
             "end_date": year + "-05-01" if "Spring" in term else year + "-12-13",
             "max_enrollment": random.choice([25, 30, 35, 40, 50, 100, 200])
         }
-        courses.append(course)
+        
+        df = session.create_dataframe([[json.dumps(course), "synthetic_data_generator"]], 
+                                       schema=["payload_str", "file_name"])
+        df.select(
+            df["payload_str"].cast("VARIANT").alias("payload"),
+            df["file_name"]
+        ).write.mode("append").save_as_table("RAW_COURSES", column_order="name")
+        count += 1
     
-    # Insert into RAW_COURSES
-    for course in courses:
-        payload_json = json.dumps(course)
-        payload_escaped = payload_json.replace("''", "''''").replace("'", "''")
-        sql = "INSERT INTO RAW_COURSES (payload, file_name) SELECT PARSE_JSON(''" + payload_escaped + "''), ''synthetic_data_generator''"
-        session.sql(sql).collect()
-    
-    return "Successfully generated " + str(num_courses) + " course records"
-';
+    return "Successfully generated " + str(count) + " course records"
+$$;
 
 -- ============================================================================
 -- STORED PROCEDURE: Generate Enrollment Data
@@ -209,27 +207,20 @@ RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'generate_enrollments'
 AS
-'
+$$
 import json
 from snowflake.snowpark import Session
+from snowflake.snowpark.functions import parse_json, lit
 import random
-from datetime import datetime, timedelta
 
 def generate_enrollments(session: Session, enrollments_per_student: int) -> str:
-    # Get existing students
-    students_df = session.sql("""
-        SELECT payload:student_id::VARCHAR as student_id 
-        FROM RAW_STUDENTS 
-        WHERE processing_status != ''ERROR''
-    """).collect()
+    students_df = session.sql(
+        "SELECT payload:student_id::VARCHAR as student_id FROM RAW_STUDENTS WHERE processing_status != 'ERROR'"
+    ).collect()
     
-    # Get existing courses
-    courses_df = session.sql("""
-        SELECT payload:course_id::VARCHAR as course_id,
-               payload:term::VARCHAR as term
-        FROM RAW_COURSES
-        WHERE processing_status != ''ERROR''
-    """).collect()
+    courses_df = session.sql(
+        "SELECT payload:course_id::VARCHAR as course_id, payload:term::VARCHAR as term FROM RAW_COURSES WHERE processing_status != 'ERROR'"
+    ).collect()
     
     if not students_df or not courses_df:
         return "No students or courses found. Generate those first."
@@ -242,7 +233,6 @@ def generate_enrollments(session: Session, enrollments_per_student: int) -> str:
     
     count = 0
     for student_id in student_ids:
-        # Randomly select courses for this student
         selected_courses = random.sample(course_data, min(enrollments_per_student, len(course_data)))
         
         for course_id, term in selected_courses:
@@ -252,19 +242,21 @@ def generate_enrollments(session: Session, enrollments_per_student: int) -> str:
                 "course_id": course_id,
                 "enrollment_state": random.choice(enrollment_states),
                 "enrollment_type": "StudentEnrollment",
-                "enrolled_at": "2024-08-15T10:00:00Z" if "Fall" in str(term) else "2025-01-06T10:00:00Z",
+                "enrolled_at": "2024-08-15T10:00:00Z" if term and "Fall" in str(term) else "2025-01-06T10:00:00Z",
                 "final_grade": random.choice(grades),
                 "final_score": round(random.uniform(50, 100), 1)
             }
             
-            payload_json = json.dumps(enrollment)
-            payload_escaped = payload_json.replace("''", "''''").replace("'", "''")
-            sql = "INSERT INTO RAW_ENROLLMENTS (payload, file_name) SELECT PARSE_JSON(''" + payload_escaped + "''), ''synthetic_data_generator''"
-            session.sql(sql).collect()
+            df = session.create_dataframe([[json.dumps(enrollment), "synthetic_data_generator"]], 
+                                           schema=["payload_str", "file_name"])
+            df.select(
+                df["payload_str"].cast("VARIANT").alias("payload"),
+                df["file_name"]
+            ).write.mode("append").save_as_table("RAW_ENROLLMENTS", column_order="name")
             count += 1
     
     return "Successfully generated " + str(count) + " enrollment records"
-';
+$$;
 
 -- ============================================================================
 -- STORED PROCEDURE: Generate Assignment Data
@@ -277,21 +269,16 @@ RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'generate_assignments'
 AS
-'
+$$
 import json
 from snowflake.snowpark import Session
 import random
 from datetime import datetime, timedelta
 
 def generate_assignments(session: Session, assignments_per_course: int) -> str:
-    # Get existing courses
-    courses_df = session.sql("""
-        SELECT payload:course_id::VARCHAR as course_id,
-               payload:start_date::DATE as start_date,
-               payload:end_date::DATE as end_date
-        FROM RAW_COURSES
-        WHERE processing_status != ''ERROR''
-    """).collect()
+    courses_df = session.sql(
+        "SELECT payload:course_id::VARCHAR as course_id FROM RAW_COURSES WHERE processing_status != 'ERROR'"
+    ).collect()
     
     if not courses_df:
         return "No courses found. Generate those first."
@@ -315,7 +302,6 @@ def generate_assignments(session: Session, assignments_per_course: int) -> str:
             atype, min_pts, max_pts = random.choice(assignment_types)
             points = random.randint(min_pts, max_pts)
             
-            # Random due date within course period
             base_date = datetime(2024, 8, 20)
             due_offset = random.randint(1, 100)
             due_date = base_date + timedelta(days=due_offset)
@@ -335,14 +321,16 @@ def generate_assignments(session: Session, assignments_per_course: int) -> str:
                 "weight": round(random.uniform(5, 25), 1)
             }
             
-            payload_json = json.dumps(assignment)
-            payload_escaped = payload_json.replace("''", "''''").replace("'", "''")
-            sql = "INSERT INTO RAW_ASSIGNMENTS (payload, file_name) SELECT PARSE_JSON(''" + payload_escaped + "''), ''synthetic_data_generator''"
-            session.sql(sql).collect()
+            df = session.create_dataframe([[json.dumps(assignment), "synthetic_data_generator"]], 
+                                           schema=["payload_str", "file_name"])
+            df.select(
+                df["payload_str"].cast("VARIANT").alias("payload"),
+                df["file_name"]
+            ).write.mode("append").save_as_table("RAW_ASSIGNMENTS", column_order="name")
             count += 1
     
     return "Successfully generated " + str(count) + " assignment records"
-';
+$$;
 
 -- ============================================================================
 -- STORED PROCEDURE: Generate Submission Data
@@ -355,23 +343,21 @@ RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'generate_submissions'
 AS
-'
+$$
 import json
 from snowflake.snowpark import Session
 import random
 from datetime import datetime, timedelta
 
 def generate_submissions(session: Session) -> str:
-    # Get enrollment-assignment pairs
     pairs_df = session.sql("""
         SELECT DISTINCT
             e.payload:student_id::VARCHAR as student_id,
             a.payload:assignment_id::VARCHAR as assignment_id,
-            a.payload:points_possible::NUMBER as points_possible,
-            a.payload:due_date::TIMESTAMP as due_date
+            a.payload:points_possible::NUMBER as points_possible
         FROM RAW_ENROLLMENTS e
         JOIN RAW_ASSIGNMENTS a ON e.payload:course_id = a.payload:course_id
-        WHERE e.processing_status != ''ERROR'' AND a.processing_status != ''ERROR''
+        WHERE e.processing_status != 'ERROR' AND a.processing_status != 'ERROR'
         LIMIT 5000
     """).collect()
     
@@ -382,7 +368,6 @@ def generate_submissions(session: Session) -> str:
     
     count = 0
     for pair in pairs_df:
-        # 90% submission rate
         if random.random() > 0.9:
             continue
             
@@ -390,15 +375,12 @@ def generate_submissions(session: Session) -> str:
         assignment_id = pair["ASSIGNMENT_ID"]
         points_possible = float(pair["POINTS_POSSIBLE"] or 100)
         
-        # Calculate score with realistic distribution
-        score_pct = random.gauss(0.78, 0.15)  # Mean 78%, std 15%
-        score_pct = max(0, min(1, score_pct))  # Clamp to 0-1
+        score_pct = random.gauss(0.78, 0.15)
+        score_pct = max(0, min(1, score_pct))
         score = round(score_pct * points_possible, 1)
         
-        # Determine if late (10% chance)
         is_late = random.random() < 0.1
         
-        # Submission timestamp
         base_time = datetime(2024, 10, 15, 23, 45, 0)
         submit_offset = timedelta(hours=random.randint(-48, 2))
         submitted_at = base_time + submit_offset
@@ -424,14 +406,16 @@ def generate_submissions(session: Session) -> str:
             "grader_id": "GRD" + str(random.randint(1000, 9999))
         }
         
-        payload_json = json.dumps(submission)
-        payload_escaped = payload_json.replace("''", "''''").replace("'", "''")
-        sql = "INSERT INTO RAW_SUBMISSIONS (payload, file_name) SELECT PARSE_JSON(''" + payload_escaped + "''), ''synthetic_data_generator''"
-        session.sql(sql).collect()
+        df = session.create_dataframe([[json.dumps(submission), "synthetic_data_generator"]], 
+                                       schema=["payload_str", "file_name"])
+        df.select(
+            df["payload_str"].cast("VARIANT").alias("payload"),
+            df["file_name"]
+        ).write.mode("append").save_as_table("RAW_SUBMISSIONS", column_order="name")
         count += 1
     
     return "Successfully generated " + str(count) + " submission records"
-';
+$$;
 
 -- ============================================================================
 -- STORED PROCEDURE: Generate Activity Log Data
@@ -444,20 +428,19 @@ RUNTIME_VERSION = '3.11'
 PACKAGES = ('snowflake-snowpark-python')
 HANDLER = 'generate_activity_logs'
 AS
-'
+$$
 import json
 from snowflake.snowpark import Session
 import random
 from datetime import datetime, timedelta
 
 def generate_activity_logs(session: Session, logs_per_enrollment: int) -> str:
-    # Get enrollments
     enrollments_df = session.sql("""
         SELECT 
             payload:student_id::VARCHAR as student_id,
             payload:course_id::VARCHAR as course_id
         FROM RAW_ENROLLMENTS
-        WHERE processing_status != ''ERROR''
+        WHERE processing_status != 'ERROR'
         LIMIT 1000
     """).collect()
     
@@ -476,10 +459,9 @@ def generate_activity_logs(session: Session, logs_per_enrollment: int) -> str:
         for i in range(logs_per_enrollment):
             activity_type = random.choice(activity_types)
             
-            # Activity timestamp - random time in semester
             base_date = datetime(2024, 8, 20)
             offset_days = random.randint(0, 100)
-            offset_hours = random.randint(6, 23)  # Most activity during waking hours
+            offset_hours = random.randint(6, 23)
             activity_time = base_date + timedelta(days=offset_days, hours=offset_hours, 
                                                    minutes=random.randint(0, 59))
             
@@ -496,14 +478,16 @@ def generate_activity_logs(session: Session, logs_per_enrollment: int) -> str:
                 "ip_address": str(random.randint(10, 200)) + "." + str(random.randint(0, 255)) + "." + str(random.randint(0, 255)) + "." + str(random.randint(1, 254))
             }
             
-            payload_json = json.dumps(activity)
-            payload_escaped = payload_json.replace("''", "''''").replace("'", "''")
-            sql = "INSERT INTO RAW_ACTIVITY_LOGS (payload, file_name) SELECT PARSE_JSON(''" + payload_escaped + "''), ''synthetic_data_generator''"
-            session.sql(sql).collect()
+            df = session.create_dataframe([[json.dumps(activity), "synthetic_data_generator"]], 
+                                           schema=["payload_str", "file_name"])
+            df.select(
+                df["payload_str"].cast("VARIANT").alias("payload"),
+                df["file_name"]
+            ).write.mode("append").save_as_table("RAW_ACTIVITY_LOGS", column_order="name")
             count += 1
     
     return "Successfully generated " + str(count) + " activity log records"
-';
+$$;
 
 -- ============================================================================
 -- MASTER PROCEDURE: Generate Complete Dataset
