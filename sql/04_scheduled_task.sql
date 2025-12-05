@@ -14,38 +14,42 @@ USE SCHEMA RAW;
 USE WAREHOUSE FGCU_TASK_WH;
 
 -- ============================================================================
--- TASK 1: Generate New Dummy Data (Simulates incoming Canvas data)
+-- CREATE AUDIT LOG TABLES FIRST (needed by procedures)
 -- ============================================================================
 
--- This task simulates new data arriving from Canvas LMS
--- In production, this would be replaced by actual API calls or file ingestion
+USE SCHEMA AUDIT;
 
-CREATE OR REPLACE TASK TASK_GENERATE_DUMMY_DATA
-    WAREHOUSE = FGCU_TASK_WH
-    SCHEDULE = 'USING CRON 0 */2 * * * America/New_York'  -- Every 2 hours
-    COMMENT = 'Generates synthetic Canvas data to simulate incoming data stream'
-AS
-    CALL GENERATE_DUMMY_STUDENTS(10);  -- 10 new students per run
+CREATE TABLE IF NOT EXISTS ETL_RUN_LOG (
+    run_id          NUMBER AUTOINCREMENT PRIMARY KEY,
+    run_type        VARCHAR(50),
+    started_at      TIMESTAMP_NTZ,
+    completed_at    TIMESTAMP_NTZ,
+    status          VARCHAR(20),
+    records_processed NUMBER,
+    error_message   VARCHAR(5000),
+    metadata        VARIANT
+);
 
--- Additional task for course data (weekly)
-CREATE OR REPLACE TASK TASK_GENERATE_DUMMY_COURSES
-    WAREHOUSE = FGCU_TASK_WH
-    SCHEDULE = 'USING CRON 0 6 * * 1 America/New_York'  -- Every Monday at 6 AM
-    COMMENT = 'Generates new course data weekly'
-AS
-    CALL GENERATE_DUMMY_COURSES(5);  -- 5 new courses per week
+CREATE TABLE IF NOT EXISTS DATA_QUALITY_LOG (
+    log_id          NUMBER AUTOINCREMENT PRIMARY KEY,
+    check_name      VARCHAR(100),
+    check_timestamp TIMESTAMP_NTZ,
+    issues_found    NUMBER,
+    details         VARIANT
+);
+
+USE SCHEMA RAW;
 
 -- ============================================================================
--- TASK 2: Process Raw Data Through Streams
+-- STORED PROCEDURES FOR MULTI-STATEMENT TASKS
 -- ============================================================================
 
--- Task to process new student records
-CREATE OR REPLACE TASK TASK_PROCESS_RAW_STUDENTS
-    WAREHOUSE = FGCU_TRANSFORM_WH
-    AFTER TASK_GENERATE_DUMMY_DATA
-    WHEN SYSTEM$STREAM_HAS_DATA('STM_RAW_STUDENTS')
-    COMMENT = 'Processes new student records from stream to curated layer'
+-- Procedure to process raw students
+CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_STUDENTS()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
+$$
 BEGIN
     -- Insert new/updated students into curated dimension
     MERGE INTO CURATED.DIM_STUDENTS tgt
@@ -92,15 +96,17 @@ BEGIN
     UPDATE RAW_STUDENTS
     SET processing_status = 'PROCESSED'
     WHERE processing_status = 'PENDING';
+    
+    RETURN 'Students processed successfully';
 END;
+$$;
 
--- Task to process new course records
-CREATE OR REPLACE TASK TASK_PROCESS_RAW_COURSES
-    WAREHOUSE = FGCU_TRANSFORM_WH
-    AFTER TASK_GENERATE_DUMMY_COURSES
-    WHEN SYSTEM$STREAM_HAS_DATA('STM_RAW_COURSES')
-    COMMENT = 'Processes new course records from stream to curated layer'
+-- Procedure to process raw courses
+CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_COURSES()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
+$$
 BEGIN
     MERGE INTO CURATED.DIM_COURSES tgt
     USING (
@@ -153,39 +159,32 @@ BEGIN
     UPDATE RAW_COURSES
     SET processing_status = 'PROCESSED'
     WHERE processing_status = 'PENDING';
+    
+    RETURN 'Courses processed successfully';
 END;
+$$;
 
--- ============================================================================
--- TASK 3: Trigger Container Service Job
--- ============================================================================
-
--- This task triggers the SPCS container to run advanced data engineering
-CREATE OR REPLACE TASK TASK_TRIGGER_CONTAINER_ETL
-    WAREHOUSE = FGCU_TASK_WH
-    SCHEDULE = 'USING CRON 0 */4 * * * America/New_York'  -- Every 4 hours
-    COMMENT = 'Triggers the container-based ETL for complex transformations'
+-- Procedure to trigger container ETL
+CREATE OR REPLACE PROCEDURE PROC_TRIGGER_CONTAINER_ETL()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
+$$
 BEGIN
     -- Log the trigger event
     INSERT INTO AUDIT.ETL_RUN_LOG (run_type, started_at, status)
     VALUES ('CONTAINER_ETL', CURRENT_TIMESTAMP(), 'TRIGGERED');
     
-    -- The container service polls for this trigger or uses event-driven architecture
-    -- In a real setup, this might use Snowflake's service functions or webhooks
-    
-    -- Alternative: Execute container service function directly
-    -- SELECT COMPUTE.CANVAS_ETL_SERVICE!RUN_ETL();
+    RETURN 'Container ETL triggered';
 END;
+$$;
 
--- ============================================================================
--- TASK 4: Refresh Aggregation Tables
--- ============================================================================
-
-CREATE OR REPLACE TASK TASK_REFRESH_AGGREGATIONS
-    WAREHOUSE = FGCU_TRANSFORM_WH
-    SCHEDULE = 'USING CRON 0 5 * * * America/New_York'  -- Daily at 5 AM
-    COMMENT = 'Refreshes aggregation tables for analytics'
+-- Procedure to refresh aggregations
+CREATE OR REPLACE PROCEDURE PROC_REFRESH_AGGREGATIONS()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
+$$
 BEGIN
     -- Refresh student course performance
     TRUNCATE TABLE CURATED.AGG_STUDENT_COURSE_PERFORMANCE;
@@ -244,17 +243,17 @@ BEGIN
         GROUP BY student_id, course_id
     ) act_agg ON act_agg.student_id = e.student_id AND act_agg.course_id = c.course_id
     GROUP BY c.course_id, c.term;
+    
+    RETURN 'Aggregations refreshed successfully';
 END;
+$$;
 
--- ============================================================================
--- TASK 5: Data Quality Checks
--- ============================================================================
-
-CREATE OR REPLACE TASK TASK_DATA_QUALITY_CHECKS
-    WAREHOUSE = FGCU_TASK_WH
-    SCHEDULE = 'USING CRON 0 6 * * * America/New_York'  -- Daily at 6 AM
-    COMMENT = 'Runs data quality checks and logs issues'
+-- Procedure for data quality checks
+CREATE OR REPLACE PROCEDURE PROC_DATA_QUALITY_CHECKS()
+RETURNS VARCHAR
+LANGUAGE SQL
 AS
+$$
 BEGIN
     -- Check for orphaned enrollments
     INSERT INTO AUDIT.DATA_QUALITY_LOG (check_name, check_timestamp, issues_found, details)
@@ -290,38 +289,88 @@ BEGIN
         OBJECT_CONSTRUCT('invalid_records', ARRAY_AGG(OBJECT_CONSTRUCT('student_id', student_id, 'gpa', gpa)))
     FROM CURATED.DIM_STUDENTS
     WHERE gpa < 0 OR gpa > 4.0;
+    
+    RETURN 'Data quality checks completed';
 END;
+$$;
 
 -- ============================================================================
--- CREATE AUDIT LOG TABLE
+-- TASK 1: Generate New Dummy Data (Simulates incoming Canvas data)
 -- ============================================================================
 
-USE SCHEMA AUDIT;
+CREATE OR REPLACE TASK TASK_GENERATE_DUMMY_DATA
+    WAREHOUSE = FGCU_TASK_WH
+    SCHEDULE = 'USING CRON 0 */2 * * * America/New_York'
+    COMMENT = 'Generates synthetic Canvas data to simulate incoming data stream'
+AS
+    CALL GENERATE_DUMMY_STUDENTS(10);
 
-CREATE TABLE IF NOT EXISTS ETL_RUN_LOG (
-    run_id          NUMBER AUTOINCREMENT PRIMARY KEY,
-    run_type        VARCHAR(50),
-    started_at      TIMESTAMP_NTZ,
-    completed_at    TIMESTAMP_NTZ,
-    status          VARCHAR(20),
-    records_processed NUMBER,
-    error_message   VARCHAR(5000),
-    metadata        VARIANT
-);
+-- Additional task for course data (weekly)
+CREATE OR REPLACE TASK TASK_GENERATE_DUMMY_COURSES
+    WAREHOUSE = FGCU_TASK_WH
+    SCHEDULE = 'USING CRON 0 6 * * 1 America/New_York'
+    COMMENT = 'Generates new course data weekly'
+AS
+    CALL GENERATE_DUMMY_COURSES(5);
 
-CREATE TABLE IF NOT EXISTS DATA_QUALITY_LOG (
-    log_id          NUMBER AUTOINCREMENT PRIMARY KEY,
-    check_name      VARCHAR(100),
-    check_timestamp TIMESTAMP_NTZ,
-    issues_found    NUMBER,
-    details         VARIANT
-);
+-- ============================================================================
+-- TASK 2: Process Raw Data Through Streams
+-- ============================================================================
+
+CREATE OR REPLACE TASK TASK_PROCESS_RAW_STUDENTS
+    WAREHOUSE = FGCU_TRANSFORM_WH
+    COMMENT = 'Processes new student records from stream to curated layer'
+    AFTER TASK_GENERATE_DUMMY_DATA
+    WHEN SYSTEM$STREAM_HAS_DATA('STM_RAW_STUDENTS')
+AS
+    CALL PROC_PROCESS_RAW_STUDENTS();
+
+CREATE OR REPLACE TASK TASK_PROCESS_RAW_COURSES
+    WAREHOUSE = FGCU_TRANSFORM_WH
+    COMMENT = 'Processes new course records from stream to curated layer'
+    AFTER TASK_GENERATE_DUMMY_COURSES
+    WHEN SYSTEM$STREAM_HAS_DATA('STM_RAW_COURSES')
+AS
+    CALL PROC_PROCESS_RAW_COURSES();
+
+-- ============================================================================
+-- TASK 3: Trigger Container Service Job
+-- ============================================================================
+
+CREATE OR REPLACE TASK TASK_TRIGGER_CONTAINER_ETL
+    WAREHOUSE = FGCU_TASK_WH
+    SCHEDULE = 'USING CRON 0 */4 * * * America/New_York'
+    COMMENT = 'Triggers the container-based ETL for complex transformations'
+AS
+    CALL PROC_TRIGGER_CONTAINER_ETL();
+
+-- ============================================================================
+-- TASK 4: Refresh Aggregation Tables
+-- ============================================================================
+
+CREATE OR REPLACE TASK TASK_REFRESH_AGGREGATIONS
+    WAREHOUSE = FGCU_TRANSFORM_WH
+    SCHEDULE = 'USING CRON 0 5 * * * America/New_York'
+    COMMENT = 'Refreshes aggregation tables for analytics'
+AS
+    CALL PROC_REFRESH_AGGREGATIONS();
+
+-- ============================================================================
+-- TASK 5: Data Quality Checks
+-- ============================================================================
+
+CREATE OR REPLACE TASK TASK_DATA_QUALITY_CHECKS
+    WAREHOUSE = FGCU_TASK_WH
+    SCHEDULE = 'USING CRON 0 6 * * * America/New_York'
+    COMMENT = 'Runs data quality checks and logs issues'
+AS
+    CALL PROC_DATA_QUALITY_CHECKS();
 
 -- ============================================================================
 -- ENABLE TASKS (Run these when ready to start the pipeline)
 -- ============================================================================
 
--- Start the task tree
+-- Start the task tree (run in reverse dependency order)
 -- ALTER TASK TASK_DATA_QUALITY_CHECKS RESUME;
 -- ALTER TASK TASK_REFRESH_AGGREGATIONS RESUME;
 -- ALTER TASK TASK_TRIGGER_CONTAINER_ETL RESUME;
@@ -347,6 +396,3 @@ CREATE TABLE IF NOT EXISTS DATA_QUALITY_LOG (
 -- ALTER TASK TASK_GENERATE_DUMMY_DATA SUSPEND;
 
 SELECT 'Scheduled tasks created successfully!' AS STATUS;
-
-
-
