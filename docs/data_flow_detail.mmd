@@ -1,0 +1,62 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#29B5E8'}}}%%
+
+sequenceDiagram
+    autonumber
+    
+    participant User as 👤 User/Scheduler
+    participant SF as ❄️ Snowflake
+    participant WH as 🏭 Warehouse
+    participant SPCS as 🐳 SPCS Container
+    participant Raw as 📦 RAW Tables
+    participant Curated as ✨ CURATED Tables
+    
+    rect rgb(33, 150, 243, 0.1)
+        Note over User,Curated: 🔵 PATHWAY A: SQL-Based Processing
+        
+        User->>SF: CALL GENERATE_DUMMY_STUDENTS(100)
+        SF->>WH: Execute Python Stored Procedure
+        WH->>Raw: INSERT INTO RAW_STUDENTS (payload)
+        WH-->>SF: ✅ 100 records generated
+        
+        User->>SF: CALL PROC_PROCESS_RAW_STUDENTS()
+        SF->>WH: Execute SQL Stored Procedure
+        WH->>Raw: SELECT * FROM RAW_STUDENTS WHERE status='PENDING'
+        Raw-->>WH: Return pending records
+        WH->>Curated: MERGE INTO DIM_STUDENTS
+        WH->>Raw: UPDATE SET status='PROCESSED'
+        WH-->>SF: ✅ Students processed
+        SF-->>User: Success message
+    end
+    
+    rect rgb(156, 39, 176, 0.1)
+        Note over User,Curated: 🟣 PATHWAY B: Container-Based Processing
+        
+        User->>SF: SELECT RUN_CANVAS_ETL('STUDENTS')
+        SF->>SPCS: HTTP POST /run_etl {"data":[[0,"STUDENTS"]]}
+        
+        activate SPCS
+        SPCS->>SPCS: Parse Snowflake request format
+        SPCS->>SF: Snowpark: session.sql("SELECT * FROM RAW...")
+        SF->>Raw: Query pending records
+        Raw-->>SF: Return data
+        SF-->>SPCS: DataFrame with records
+        
+        SPCS->>SPCS: Python transformation logic
+        SPCS->>SF: Snowpark: df.write.save_as_table()
+        SF->>Curated: INSERT/MERGE into DIM_STUDENTS
+        Curated-->>SF: ✅ Write complete
+        SF-->>SPCS: Success
+        deactivate SPCS
+        
+        SPCS-->>SF: {"data":[[0,"ETL completed. Records: 100"]]}
+        SF-->>User: Result message
+    end
+    
+    rect rgb(255, 152, 0, 0.1)
+        Note over User,Curated: 📈 Cost Monitoring (Both Pathways)
+        
+        User->>SF: SELECT * FROM VW_COST_DASHBOARD
+        SF->>SF: Query ACCOUNT_USAGE views
+        SF-->>User: Cost attribution by resource
+    end
+
