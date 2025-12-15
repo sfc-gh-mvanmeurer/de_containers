@@ -5,11 +5,7 @@ FGCU Canvas Analytics - Semantic Views Setup
 Creates semantic views on top of the curated Canvas LMS data to enable 
 natural language queries through Cortex Analyst and Snowflake Intelligence.
 
-This script:
-1. Creates base views with computed columns
-2. Creates semantic views referencing those base views
-
-Reference: https://docs.snowflake.com/en/user-guide/views-semantic/overview
+Reference: https://docs.snowflake.com/en/user-guide/views-semantic/sql
 ================================================================================
 */
 
@@ -27,8 +23,7 @@ CREATE SCHEMA IF NOT EXISTS ANALYTICS
 USE SCHEMA ANALYTICS;
 
 -- ============================================================================
--- STEP 1: CREATE BASE VIEWS
--- These views add computed columns that semantic views will reference
+-- STEP 1: CREATE BASE VIEWS WITH COMPUTED COLUMNS
 -- ============================================================================
 
 -- Base view for students with computed columns
@@ -89,7 +84,6 @@ SELECT
     e.enrollment_state AS enrollment_status,
     e.final_grade,
     e.final_score,
-    -- Convert score to grade points (4.0 scale)
     CASE 
         WHEN e.final_score >= 90 THEN 4.0
         WHEN e.final_score >= 80 THEN 3.0
@@ -196,302 +190,327 @@ LEFT JOIN FGCU_CANVAS_DEMO.CURATED.DIM_COURSES c ON p.course_id = c.course_id;
 
 -- ============================================================================
 -- STEP 2: CREATE SEMANTIC VIEWS
--- Reference the base views created above
+-- Using correct syntax: table.name AS expression COMMENT = 'description'
 -- ============================================================================
 
 -- Semantic View 1: Student Analytics
 CREATE OR REPLACE SEMANTIC VIEW CANVAS_STUDENT_ANALYTICS
+
   TABLES (
-    STUDENTS AS FGCU_CANVAS_DEMO.ANALYTICS.VW_STUDENTS_BASE
+    students AS FGCU_CANVAS_DEMO.ANALYTICS.VW_STUDENTS_BASE
       PRIMARY KEY (student_id)
+      COMMENT = 'Student dimension with demographics and GPA'
   )
+
   FACTS (
-    student_gpa AS STUDENTS.gpa
-      DESCRIPTION 'Individual student GPA on 4.0 scale'
+    students.student_gpa AS gpa
+      COMMENT = 'Individual student GPA on 4.0 scale'
   )
+
   DIMENSIONS (
-    student_id AS STUDENTS.student_id
-      DESCRIPTION 'Unique student identifier',
-    student_name AS STUDENTS.full_name
-      DESCRIPTION 'Full name of the student',
-    first_name AS STUDENTS.first_name
-      DESCRIPTION 'Student first name',
-    last_name AS STUDENTS.last_name
-      DESCRIPTION 'Student last name',
-    email AS STUDENTS.email
-      DESCRIPTION 'Student email address',
-    major AS STUDENTS.major
-      DESCRIPTION 'Student academic major',
-    classification AS STUDENTS.classification
-      DESCRIPTION 'Student year: Freshman, Sophomore, Junior, Senior',
-    enrollment_status AS STUDENTS.enrollment_status
-      DESCRIPTION 'Current enrollment status: Active, Inactive, Graduated',
-    enrollment_date AS STUDENTS.enrollment_date
-      DESCRIPTION 'Date student first enrolled',
-    graduation_date AS STUDENTS.expected_graduation
-      DESCRIPTION 'Expected graduation date',
-    academic_standing AS STUDENTS.academic_standing
-      DESCRIPTION 'Academic standing based on GPA'
+    students.student_id AS student_id
+      COMMENT = 'Unique student identifier',
+    students.student_name AS full_name
+      COMMENT = 'Full name of the student',
+    students.first_name AS first_name
+      COMMENT = 'Student first name',
+    students.last_name AS last_name
+      COMMENT = 'Student last name',
+    students.email AS email
+      COMMENT = 'Student email address',
+    students.major AS major
+      COMMENT = 'Student academic major',
+    students.classification AS classification
+      COMMENT = 'Student year: Freshman, Sophomore, Junior, Senior',
+    students.enrollment_status AS enrollment_status
+      COMMENT = 'Current enrollment status',
+    students.enrollment_date AS enrollment_date
+      COMMENT = 'Date student first enrolled',
+    students.graduation_date AS expected_graduation
+      COMMENT = 'Expected graduation date',
+    students.academic_standing AS academic_standing
+      COMMENT = 'Academic standing based on GPA'
   )
+
   METRICS (
-    total_students AS COUNT(STUDENTS.student_id)
-      DESCRIPTION 'Total number of students',
-    average_gpa AS AVG(STUDENTS.gpa)
-      DESCRIPTION 'Average GPA across students',
-    active_students AS COUNT_IF(STUDENTS.enrollment_status = 'Active')
-      DESCRIPTION 'Number of currently active students',
-    at_risk_students AS COUNT_IF(STUDENTS.gpa < 2.0)
-      DESCRIPTION 'Students with GPA below 2.0',
-    deans_list_students AS COUNT_IF(STUDENTS.gpa >= 3.5)
-      DESCRIPTION 'Students on Deans List with GPA >= 3.5'
+    students.total_students AS COUNT(student_id)
+      COMMENT = 'Total number of students',
+    students.average_gpa AS AVG(gpa)
+      COMMENT = 'Average GPA across students',
+    students.active_students AS COUNT_IF(enrollment_status = 'Active')
+      COMMENT = 'Number of currently active students',
+    students.at_risk_students AS COUNT_IF(gpa < 2.0)
+      COMMENT = 'Students with GPA below 2.0',
+    students.deans_list_students AS COUNT_IF(gpa >= 3.5)
+      COMMENT = 'Students on Deans List with GPA >= 3.5'
   )
+
   COMMENT = 'Student performance analytics for Canvas LMS data';
 
+-- Grant access
 GRANT USAGE ON SCHEMA ANALYTICS TO ROLE PUBLIC;
-GRANT REFERENCES ON SEMANTIC VIEW CANVAS_STUDENT_ANALYTICS TO ROLE PUBLIC;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW CANVAS_STUDENT_ANALYTICS TO ROLE PUBLIC;
 GRANT SELECT ON VW_STUDENTS_BASE TO ROLE PUBLIC;
 
 
 -- Semantic View 2: Course Analytics
 CREATE OR REPLACE SEMANTIC VIEW CANVAS_COURSE_ANALYTICS
+
   TABLES (
-    COURSES AS FGCU_CANVAS_DEMO.ANALYTICS.VW_COURSES_BASE
+    courses AS FGCU_CANVAS_DEMO.ANALYTICS.VW_COURSES_BASE
       PRIMARY KEY (course_id)
+      COMMENT = 'Course dimension with curriculum info'
   )
+
   FACTS (
-    course_credits AS COURSES.credit_hours
-      DESCRIPTION 'Number of credit hours for the course',
-    max_seats AS COURSES.max_enrollment
-      DESCRIPTION 'Maximum enrollment capacity'
+    courses.course_credits AS credit_hours
+      COMMENT = 'Number of credit hours for the course',
+    courses.max_seats AS max_enrollment
+      COMMENT = 'Maximum enrollment capacity'
   )
+
   DIMENSIONS (
-    course_id AS COURSES.course_id
-      DESCRIPTION 'Unique course identifier',
-    course_code AS COURSES.course_code
-      DESCRIPTION 'Course code like CIS 4930',
-    course_name AS COURSES.course_name
-      DESCRIPTION 'Full course name',
-    department AS COURSES.department
-      DESCRIPTION 'Academic department',
-    term AS COURSES.term
-      DESCRIPTION 'Academic term',
-    instructor AS COURSES.instructor_name
-      DESCRIPTION 'Course instructor name',
-    delivery_mode AS COURSES.delivery_mode
-      DESCRIPTION 'Course delivery: In-Person, Online, Hybrid',
-    start_date AS COURSES.start_date
-      DESCRIPTION 'Course start date',
-    end_date AS COURSES.end_date
-      DESCRIPTION 'Course end date',
-    course_level AS COURSES.course_level
-      DESCRIPTION 'Course level: Undergraduate or Graduate'
+    courses.course_id AS course_id
+      COMMENT = 'Unique course identifier',
+    courses.course_code AS course_code
+      COMMENT = 'Course code like CIS 4930',
+    courses.course_name AS course_name
+      COMMENT = 'Full course name',
+    courses.department AS department
+      COMMENT = 'Academic department',
+    courses.term AS term
+      COMMENT = 'Academic term',
+    courses.instructor AS instructor_name
+      COMMENT = 'Course instructor name',
+    courses.delivery_mode AS delivery_mode
+      COMMENT = 'Course delivery: In-Person, Online, Hybrid',
+    courses.start_date AS start_date
+      COMMENT = 'Course start date',
+    courses.end_date AS end_date
+      COMMENT = 'Course end date',
+    courses.course_level AS course_level
+      COMMENT = 'Course level: Undergraduate or Graduate'
   )
+
   METRICS (
-    total_courses AS COUNT(COURSES.course_id)
-      DESCRIPTION 'Total number of courses',
-    total_credit_hours AS SUM(COURSES.credit_hours)
-      DESCRIPTION 'Total credit hours offered',
-    total_capacity AS SUM(COURSES.max_enrollment)
-      DESCRIPTION 'Total enrollment capacity',
-    current_courses AS COUNT_IF(COURSES.is_current = TRUE)
-      DESCRIPTION 'Number of current courses',
-    unique_instructors AS COUNT(DISTINCT COURSES.instructor_name)
-      DESCRIPTION 'Number of unique instructors'
+    courses.total_courses AS COUNT(course_id)
+      COMMENT = 'Total number of courses',
+    courses.total_credit_hours AS SUM(credit_hours)
+      COMMENT = 'Total credit hours offered',
+    courses.total_capacity AS SUM(max_enrollment)
+      COMMENT = 'Total enrollment capacity',
+    courses.current_courses AS COUNT_IF(is_current = TRUE)
+      COMMENT = 'Number of current courses',
+    courses.unique_instructors AS COUNT(DISTINCT instructor_name)
+      COMMENT = 'Number of unique instructors'
   )
+
   COMMENT = 'Course and curriculum analytics for Canvas LMS';
 
-GRANT REFERENCES ON SEMANTIC VIEW CANVAS_COURSE_ANALYTICS TO ROLE PUBLIC;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW CANVAS_COURSE_ANALYTICS TO ROLE PUBLIC;
 GRANT SELECT ON VW_COURSES_BASE TO ROLE PUBLIC;
 
 
 -- Semantic View 3: Enrollment Analytics
 CREATE OR REPLACE SEMANTIC VIEW CANVAS_ENROLLMENT_ANALYTICS
+
   TABLES (
-    ENROLLMENTS AS FGCU_CANVAS_DEMO.ANALYTICS.VW_ENROLLMENTS_BASE
+    enrollments AS FGCU_CANVAS_DEMO.ANALYTICS.VW_ENROLLMENTS_BASE
       PRIMARY KEY (enrollment_id)
+      COMMENT = 'Enrollment facts with student and course details'
   )
+
   FACTS (
-    grade_point AS ENROLLMENTS.grade_points
-      DESCRIPTION 'Grade points earned 0.0 to 4.0',
-    credit_hours AS ENROLLMENTS.credit_hours
-      DESCRIPTION 'Credit hours for the course'
+    enrollments.grade_point AS grade_points
+      COMMENT = 'Grade points earned 0.0 to 4.0',
+    enrollments.credit_hours AS credit_hours
+      COMMENT = 'Credit hours for the course'
   )
+
   DIMENSIONS (
-    enrollment_id AS ENROLLMENTS.enrollment_id
-      DESCRIPTION 'Unique enrollment identifier',
-    student_id AS ENROLLMENTS.student_id
-      DESCRIPTION 'Student identifier',
-    student_name AS ENROLLMENTS.student_name
-      DESCRIPTION 'Full name of the student',
-    student_major AS ENROLLMENTS.student_major
-      DESCRIPTION 'Major of the student',
-    student_classification AS ENROLLMENTS.student_classification
-      DESCRIPTION 'Classification of the student',
-    course_id AS ENROLLMENTS.course_id
-      DESCRIPTION 'Course identifier',
-    course_code AS ENROLLMENTS.course_code
-      DESCRIPTION 'Course code',
-    course_name AS ENROLLMENTS.course_name
-      DESCRIPTION 'Name of the course',
-    department AS ENROLLMENTS.department
-      DESCRIPTION 'Department offering the course',
-    term AS ENROLLMENTS.term
-      DESCRIPTION 'Academic term',
-    instructor AS ENROLLMENTS.instructor_name
-      DESCRIPTION 'Course instructor',
-    enrollment_status AS ENROLLMENTS.enrollment_status
-      DESCRIPTION 'Enrollment status',
-    enrollment_date AS ENROLLMENTS.enrollment_date
-      DESCRIPTION 'Date of enrollment',
-    letter_grade AS ENROLLMENTS.final_grade
-      DESCRIPTION 'Final letter grade',
-    grade_category AS ENROLLMENTS.grade_category
-      DESCRIPTION 'Grade category based on points'
+    enrollments.enrollment_id AS enrollment_id
+      COMMENT = 'Unique enrollment identifier',
+    enrollments.student_id AS student_id
+      COMMENT = 'Student identifier',
+    enrollments.student_name AS student_name
+      COMMENT = 'Full name of the student',
+    enrollments.student_major AS student_major
+      COMMENT = 'Major of the student',
+    enrollments.student_classification AS student_classification
+      COMMENT = 'Classification of the student',
+    enrollments.course_id AS course_id
+      COMMENT = 'Course identifier',
+    enrollments.course_code AS course_code
+      COMMENT = 'Course code',
+    enrollments.course_name AS course_name
+      COMMENT = 'Name of the course',
+    enrollments.department AS department
+      COMMENT = 'Department offering the course',
+    enrollments.term AS term
+      COMMENT = 'Academic term',
+    enrollments.instructor AS instructor_name
+      COMMENT = 'Course instructor',
+    enrollments.enrollment_status AS enrollment_status
+      COMMENT = 'Enrollment status',
+    enrollments.enrollment_date AS enrollment_date
+      COMMENT = 'Date of enrollment',
+    enrollments.letter_grade AS final_grade
+      COMMENT = 'Final letter grade',
+    enrollments.grade_category AS grade_category
+      COMMENT = 'Grade category based on points'
   )
+
   METRICS (
-    total_enrollments AS COUNT(ENROLLMENTS.enrollment_id)
-      DESCRIPTION 'Total number of enrollments',
-    unique_students AS COUNT(DISTINCT ENROLLMENTS.student_id)
-      DESCRIPTION 'Number of unique students',
-    unique_courses AS COUNT(DISTINCT ENROLLMENTS.course_id)
-      DESCRIPTION 'Number of unique courses',
-    average_grade_points AS AVG(ENROLLMENTS.grade_points)
-      DESCRIPTION 'Average grade points',
-    total_credit_hours AS SUM(ENROLLMENTS.credit_hours)
-      DESCRIPTION 'Total credit hours enrolled',
-    completion_rate AS COUNT_IF(ENROLLMENTS.enrollment_status = 'Completed') * 100.0 / NULLIF(COUNT(ENROLLMENTS.enrollment_id), 0)
-      DESCRIPTION 'Percentage of enrollments completed',
-    pass_rate AS COUNT_IF(ENROLLMENTS.grade_points >= 2.0) * 100.0 / NULLIF(COUNT_IF(ENROLLMENTS.grade_points IS NOT NULL), 0)
-      DESCRIPTION 'Percentage passing with C or better'
+    enrollments.total_enrollments AS COUNT(enrollment_id)
+      COMMENT = 'Total number of enrollments',
+    enrollments.unique_students AS COUNT(DISTINCT student_id)
+      COMMENT = 'Number of unique students',
+    enrollments.unique_courses AS COUNT(DISTINCT course_id)
+      COMMENT = 'Number of unique courses',
+    enrollments.average_grade_points AS AVG(grade_points)
+      COMMENT = 'Average grade points',
+    enrollments.total_credit_hours AS SUM(credit_hours)
+      COMMENT = 'Total credit hours enrolled'
   )
+
   COMMENT = 'Enrollment analytics combining student and course data';
 
-GRANT REFERENCES ON SEMANTIC VIEW CANVAS_ENROLLMENT_ANALYTICS TO ROLE PUBLIC;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW CANVAS_ENROLLMENT_ANALYTICS TO ROLE PUBLIC;
 GRANT SELECT ON VW_ENROLLMENTS_BASE TO ROLE PUBLIC;
 
 
 -- Semantic View 4: Submission Analytics
 CREATE OR REPLACE SEMANTIC VIEW CANVAS_SUBMISSION_ANALYTICS
+
   TABLES (
-    SUBMISSIONS AS FGCU_CANVAS_DEMO.ANALYTICS.VW_SUBMISSIONS_BASE
+    submissions AS FGCU_CANVAS_DEMO.ANALYTICS.VW_SUBMISSIONS_BASE
       PRIMARY KEY (submission_id)
+      COMMENT = 'Assignment submissions with grades'
   )
+
   FACTS (
-    submission_score AS SUBMISSIONS.score
-      DESCRIPTION 'Score received on the submission',
-    max_points AS SUBMISSIONS.points_possible
-      DESCRIPTION 'Maximum points possible',
-    attempts AS SUBMISSIONS.attempt_number
-      DESCRIPTION 'Number of submission attempts'
+    submissions.submission_score AS score
+      COMMENT = 'Score received on the submission',
+    submissions.max_points AS points_possible
+      COMMENT = 'Maximum points possible',
+    submissions.attempts AS attempt_number
+      COMMENT = 'Number of submission attempts'
   )
+
   DIMENSIONS (
-    submission_id AS SUBMISSIONS.submission_id
-      DESCRIPTION 'Unique submission identifier',
-    assignment_id AS SUBMISSIONS.assignment_id
-      DESCRIPTION 'Assignment identifier',
-    assignment_name AS SUBMISSIONS.assignment_name
-      DESCRIPTION 'Name of the assignment',
-    assignment_type AS SUBMISSIONS.assignment_type
-      DESCRIPTION 'Type: Quiz, Homework, Exam, Project',
-    student_id AS SUBMISSIONS.student_id
-      DESCRIPTION 'Student identifier',
-    student_name AS SUBMISSIONS.student_name
-      DESCRIPTION 'Name of the student',
-    student_major AS SUBMISSIONS.student_major
-      DESCRIPTION 'Student major',
-    submission_date AS SUBMISSIONS.submission_date
-      DESCRIPTION 'Date of submission',
-    due_date AS SUBMISSIONS.due_date
-      DESCRIPTION 'Assignment due date',
-    is_late AS SUBMISSIONS.late_flag
-      DESCRIPTION 'Whether submission was late',
-    grade AS SUBMISSIONS.grade
-      DESCRIPTION 'Letter grade assigned',
-    score_category AS SUBMISSIONS.score_category
-      DESCRIPTION 'Score category based on percentage'
+    submissions.submission_id AS submission_id
+      COMMENT = 'Unique submission identifier',
+    submissions.assignment_id AS assignment_id
+      COMMENT = 'Assignment identifier',
+    submissions.assignment_name AS assignment_name
+      COMMENT = 'Name of the assignment',
+    submissions.assignment_type AS assignment_type
+      COMMENT = 'Type: Quiz, Homework, Exam, Project',
+    submissions.student_id AS student_id
+      COMMENT = 'Student identifier',
+    submissions.student_name AS student_name
+      COMMENT = 'Name of the student',
+    submissions.student_major AS student_major
+      COMMENT = 'Student major',
+    submissions.submission_date AS submission_date
+      COMMENT = 'Date of submission',
+    submissions.due_date AS due_date
+      COMMENT = 'Assignment due date',
+    submissions.is_late AS late_flag
+      COMMENT = 'Whether submission was late',
+    submissions.grade AS grade
+      COMMENT = 'Letter grade assigned',
+    submissions.score_category AS score_category
+      COMMENT = 'Score category based on percentage'
   )
+
   METRICS (
-    total_submissions AS COUNT(SUBMISSIONS.submission_id)
-      DESCRIPTION 'Total number of submissions',
-    unique_students_submitted AS COUNT(DISTINCT SUBMISSIONS.student_id)
-      DESCRIPTION 'Unique students who submitted',
-    average_score AS AVG(SUBMISSIONS.score)
-      DESCRIPTION 'Average score',
-    late_submission_count AS COUNT_IF(SUBMISSIONS.late_flag = TRUE)
-      DESCRIPTION 'Number of late submissions',
-    late_submission_rate AS COUNT_IF(SUBMISSIONS.late_flag = TRUE) * 100.0 / NULLIF(COUNT(SUBMISSIONS.submission_id), 0)
-      DESCRIPTION 'Percentage of late submissions'
+    submissions.total_submissions AS COUNT(submission_id)
+      COMMENT = 'Total number of submissions',
+    submissions.unique_students_submitted AS COUNT(DISTINCT student_id)
+      COMMENT = 'Unique students who submitted',
+    submissions.average_score AS AVG(score)
+      COMMENT = 'Average score',
+    submissions.late_submission_count AS COUNT_IF(late_flag = TRUE)
+      COMMENT = 'Number of late submissions'
   )
+
   COMMENT = 'Assignment submission analytics for Canvas LMS';
 
-GRANT REFERENCES ON SEMANTIC VIEW CANVAS_SUBMISSION_ANALYTICS TO ROLE PUBLIC;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW CANVAS_SUBMISSION_ANALYTICS TO ROLE PUBLIC;
 GRANT SELECT ON VW_SUBMISSIONS_BASE TO ROLE PUBLIC;
 
 
 -- Semantic View 5: Performance Dashboard
 CREATE OR REPLACE SEMANTIC VIEW CANVAS_PERFORMANCE_DASHBOARD
+
   TABLES (
-    PERFORMANCE AS FGCU_CANVAS_DEMO.ANALYTICS.VW_PERFORMANCE_BASE
+    performance AS FGCU_CANVAS_DEMO.ANALYTICS.VW_PERFORMANCE_BASE
+      COMMENT = 'Aggregated student-course performance'
   )
+
   FACTS (
-    assignments_total AS PERFORMANCE.total_assignments
-      DESCRIPTION 'Total assignments in the course',
-    assignments_completed AS PERFORMANCE.completed_assignments
-      DESCRIPTION 'Assignments completed by student',
-    avg_assignment_score AS PERFORMANCE.average_score
-      DESCRIPTION 'Average score on assignments',
-    points_earned AS PERFORMANCE.total_points_earned
-      DESCRIPTION 'Total points earned',
-    points_possible AS PERFORMANCE.total_points_possible
-      DESCRIPTION 'Total points possible',
-    late_count AS PERFORMANCE.late_submissions
-      DESCRIPTION 'Number of late submissions',
-    missing_count AS PERFORMANCE.missing_submissions
-      DESCRIPTION 'Number of missing submissions'
+    performance.assignments_total AS total_assignments
+      COMMENT = 'Total assignments in the course',
+    performance.assignments_completed AS completed_assignments
+      COMMENT = 'Assignments completed by student',
+    performance.avg_assignment_score AS average_score
+      COMMENT = 'Average score on assignments',
+    performance.points_earned AS total_points_earned
+      COMMENT = 'Total points earned',
+    performance.points_possible AS total_points_possible
+      COMMENT = 'Total points possible',
+    performance.late_count AS late_submissions
+      COMMENT = 'Number of late submissions',
+    performance.missing_count AS missing_submissions
+      COMMENT = 'Number of missing submissions'
   )
+
   DIMENSIONS (
-    student_id AS PERFORMANCE.student_id
-      DESCRIPTION 'Student identifier',
-    student_name AS PERFORMANCE.student_name
-      DESCRIPTION 'Student full name',
-    major AS PERFORMANCE.major
-      DESCRIPTION 'Student major',
-    classification AS PERFORMANCE.classification
-      DESCRIPTION 'Student classification',
-    overall_gpa AS PERFORMANCE.overall_gpa
-      DESCRIPTION 'Student overall GPA',
-    course_id AS PERFORMANCE.course_id
-      DESCRIPTION 'Course identifier',
-    course_code AS PERFORMANCE.course_code
-      DESCRIPTION 'Course code',
-    course_name AS PERFORMANCE.course_name
-      DESCRIPTION 'Course name',
-    department AS PERFORMANCE.department
-      DESCRIPTION 'Academic department',
-    instructor AS PERFORMANCE.instructor_name
-      DESCRIPTION 'Course instructor',
-    term AS PERFORMANCE.term
-      DESCRIPTION 'Academic term',
-    course_grade AS PERFORMANCE.performance_grade
-      DESCRIPTION 'Current grade in course',
-    completion_rate AS PERFORMANCE.completion_rate
-      DESCRIPTION 'Assignment completion percentage'
+    performance.student_id AS student_id
+      COMMENT = 'Student identifier',
+    performance.student_name AS student_name
+      COMMENT = 'Student full name',
+    performance.major AS major
+      COMMENT = 'Student major',
+    performance.classification AS classification
+      COMMENT = 'Student classification',
+    performance.overall_gpa AS overall_gpa
+      COMMENT = 'Student overall GPA',
+    performance.course_id AS course_id
+      COMMENT = 'Course identifier',
+    performance.course_code AS course_code
+      COMMENT = 'Course code',
+    performance.course_name AS course_name
+      COMMENT = 'Course name',
+    performance.department AS department
+      COMMENT = 'Academic department',
+    performance.instructor AS instructor_name
+      COMMENT = 'Course instructor',
+    performance.term AS term
+      COMMENT = 'Academic term',
+    performance.course_grade AS performance_grade
+      COMMENT = 'Current grade in course',
+    performance.completion_rate AS completion_rate
+      COMMENT = 'Assignment completion percentage'
   )
+
   METRICS (
-    total_records AS COUNT(*)
-      DESCRIPTION 'Total student-course combinations',
-    avg_course_score AS AVG(PERFORMANCE.average_score)
-      DESCRIPTION 'Average score across all',
-    total_late_submissions AS SUM(PERFORMANCE.late_submissions)
-      DESCRIPTION 'Total late submissions',
-    students_at_risk AS COUNT_IF(PERFORMANCE.average_score < 60)
-      DESCRIPTION 'Students scoring below 60 percent',
-    high_performers AS COUNT_IF(PERFORMANCE.average_score >= 90)
-      DESCRIPTION 'Students scoring 90 percent or above'
+    performance.total_records AS COUNT(*)
+      COMMENT = 'Total student-course combinations',
+    performance.avg_course_score AS AVG(average_score)
+      COMMENT = 'Average score across all',
+    performance.total_late_submissions AS SUM(late_submissions)
+      COMMENT = 'Total late submissions',
+    performance.students_at_risk AS COUNT_IF(average_score < 60)
+      COMMENT = 'Students scoring below 60 percent',
+    performance.high_performers AS COUNT_IF(average_score >= 90)
+      COMMENT = 'Students scoring 90 percent or above'
   )
+
   COMMENT = 'Aggregated student performance metrics for dashboards';
 
-GRANT REFERENCES ON SEMANTIC VIEW CANVAS_PERFORMANCE_DASHBOARD TO ROLE PUBLIC;
+GRANT REFERENCES, SELECT ON SEMANTIC VIEW CANVAS_PERFORMANCE_DASHBOARD TO ROLE PUBLIC;
 GRANT SELECT ON VW_PERFORMANCE_BASE TO ROLE PUBLIC;
 
 
@@ -505,7 +524,7 @@ SHOW VIEWS IN SCHEMA FGCU_CANVAS_DEMO.ANALYTICS;
 -- Show all created semantic views
 SHOW SEMANTIC VIEWS IN SCHEMA FGCU_CANVAS_DEMO.ANALYTICS;
 
--- Test a semantic view
+-- Describe a semantic view
 DESCRIBE SEMANTIC VIEW CANVAS_STUDENT_ANALYTICS;
 
-SELECT 'Setup complete!' AS status;
+SELECT 'Semantic views setup complete!' AS status;
