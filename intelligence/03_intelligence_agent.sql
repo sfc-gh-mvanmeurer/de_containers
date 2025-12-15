@@ -267,50 +267,187 @@ SELECT COUNT(*) AS performance_rows FROM CANVAS_PERFORMANCE_DASHBOARD;
 
 
 -- ============================================================================
--- STEP 6: CREATE AGENT VIA SNOWSIGHT UI
+-- STEP 6: CREATE AGENT VIA SQL
+-- Reference: https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-agents-manage
+-- ============================================================================
+
+-- Create the Cortex Agent with semantic views and search services
+CREATE OR REPLACE AGENT FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ANALYTICS_AGENT
+    COMMENT = 'AI-powered analytics assistant for FGCU Canvas LMS data'
+    PROFILE = '{
+        "display_name": "FGCU Canvas Analytics Assistant",
+        "avatar": "📊",
+        "color": "#007749"
+    }'
+    FROM SPECIFICATION
+$$
+models:
+  orchestration: claude-4-sonnet
+
+orchestration:
+  budget:
+    seconds: 60
+    tokens: 32000
+
+instructions:
+  system: |
+    You are the FGCU Canvas Analytics Assistant, an AI-powered data analyst for 
+    Florida Gulf Coast University's Canvas Learning Management System.
+    
+    You help faculty, advisors, and administrators analyze:
+    - Student performance and demographics
+    - Course enrollment and grades  
+    - Assignment submissions and completion rates
+    - Learning activity patterns and engagement
+    
+    Always be helpful, accurate, and provide actionable insights.
+
+  orchestration: |
+    Tool Selection Guidelines:
+    
+    1. For STRUCTURED DATA queries (counts, averages, comparisons):
+       - Use StudentAnalyst for student demographics, GPA, majors, classification
+       - Use CourseAnalyst for course catalog, departments, instructors, credits
+       - Use EnrollmentAnalyst for enrollment data, grades, student-course relationships
+       - Use SubmissionAnalyst for assignment submissions, scores, late work
+       - Use PerformanceAnalyst for aggregated student-course performance metrics
+    
+    2. For SEARCH queries (find specific students, courses, activities):
+       - Use StudentSearch for finding students by name, major, or status
+       - Use CourseSearch for finding courses by name, department, or instructor
+       - Use ActivitySearch for finding specific activity patterns
+    
+    3. For VISUALIZATION requests:
+       - Use data_to_chart to generate charts from query results
+    
+    Multi-tool coordination:
+    - For questions spanning students AND courses, query both and combine insights
+    - For trend analysis, use appropriate analyst tool then visualize with chart
+
+  response: |
+    Response Guidelines:
+    - Lead with the direct answer to the question
+    - Include relevant numbers and statistics
+    - Provide context when helpful (e.g., "This is above/below average")
+    - Offer follow-up suggestions when appropriate
+    - Use clear formatting with headers and bullet points for complex responses
+    - When showing data, consider if a visualization would help
+
+  sample_questions:
+    - question: "What is the average GPA by major?"
+      answer: "I'll analyze student GPA data grouped by major using the Student Analytics tool."
+    - question: "Show me students at risk of failing"
+      answer: "I'll identify students with GPA below 2.0 or those on academic probation."
+    - question: "Which courses have the highest enrollment?"
+      answer: "I'll query enrollment data and rank courses by student count."
+    - question: "What's the late submission rate by assignment type?"
+      answer: "I'll analyze submission data to calculate late rates for each assignment type."
+
+tools:
+  # Cortex Analyst tools for structured data
+  - tool_spec:
+      type: cortex_analyst_text_to_sql
+      name: StudentAnalyst
+      description: "Analyzes student demographics, GPA, majors, classification, and academic standing. Use for questions about student counts, average GPA, at-risk students, and dean's list."
+  
+  - tool_spec:
+      type: cortex_analyst_text_to_sql
+      name: CourseAnalyst
+      description: "Analyzes course catalog including departments, instructors, credit hours, and delivery modes. Use for questions about course offerings and curriculum."
+  
+  - tool_spec:
+      type: cortex_analyst_text_to_sql
+      name: EnrollmentAnalyst
+      description: "Analyzes enrollment patterns, grades, and student-course relationships. Use for questions about enrollment counts, grade distributions, and pass rates."
+  
+  - tool_spec:
+      type: cortex_analyst_text_to_sql
+      name: SubmissionAnalyst
+      description: "Analyzes assignment submissions, scores, and grading patterns. Use for questions about submission rates, late work, and assignment performance."
+  
+  - tool_spec:
+      type: cortex_analyst_text_to_sql
+      name: PerformanceAnalyst
+      description: "Analyzes aggregated student-course performance metrics. Use for questions about completion rates, at-risk students, and high performers."
+
+  # Cortex Search tools for unstructured search
+  - tool_spec:
+      type: cortex_search
+      name: StudentSearch
+      description: "Search student directory by name, major, classification, or status. Use when user wants to find specific students."
+  
+  - tool_spec:
+      type: cortex_search
+      name: CourseSearch
+      description: "Search course catalog by name, department, instructor, or delivery mode. Use when user wants to find specific courses."
+  
+  - tool_spec:
+      type: cortex_search
+      name: ActivitySearch
+      description: "Search student activity logs by type, page, or device. Use when user wants to find specific learning activities."
+
+  # Visualization tool
+  - tool_spec:
+      type: data_to_chart
+      name: data_to_chart
+      description: "Generate visualizations from data. Use when query results would benefit from a chart or graph."
+
+tool_resources:
+  StudentAnalyst:
+    semantic_view: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_STUDENT_ANALYTICS
+  
+  CourseAnalyst:
+    semantic_view: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_COURSE_ANALYTICS
+  
+  EnrollmentAnalyst:
+    semantic_view: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ENROLLMENT_ANALYTICS
+  
+  SubmissionAnalyst:
+    semantic_view: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_SUBMISSION_ANALYTICS
+  
+  PerformanceAnalyst:
+    semantic_view: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_PERFORMANCE_DASHBOARD
+  
+  StudentSearch:
+    name: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_STUDENT_SEARCH
+    max_results: 10
+    title_column: full_name
+    id_column: student_id
+  
+  CourseSearch:
+    name: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_COURSE_SEARCH
+    max_results: 10
+    title_column: course_name
+    id_column: course_id
+  
+  ActivitySearch:
+    name: FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ACTIVITY_SEARCH
+    max_results: 10
+    title_column: activity_type
+    id_column: activity_id
+$$;
+
+-- Grant usage on the agent to appropriate roles
+GRANT USAGE ON AGENT FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ANALYTICS_AGENT TO ROLE CANVAS_INTELLIGENCE_ROLE;
+GRANT USAGE ON AGENT FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ANALYTICS_AGENT TO ROLE ACCOUNTADMIN;
+
+-- Verify the agent was created
+SHOW AGENTS IN SCHEMA FGCU_CANVAS_DEMO.ANALYTICS;
+DESCRIBE AGENT FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ANALYTICS_AGENT;
+
+
+-- ============================================================================
+-- ALTERNATIVE: CREATE AGENT VIA SNOWSIGHT UI
 -- ============================================================================
 
 /*
-INSTRUCTIONS TO CREATE THE AGENT:
+If you prefer to create the agent via the UI instead of SQL:
 
 1. Open Snowsight and navigate to: AI & ML > Agents
-
-2. Click on the "Snowflake Intelligence" tab
-
-3. Click "Create Agent" button
-
-4. Fill in the configuration:
-   
-   GENERAL SETTINGS:
-   - Name: FGCU_CANVAS_ANALYTICS_AGENT
-   - Description: AI assistant for FGCU Canvas LMS analytics
-   - Model: Auto (or Claude 3.5)
-   
-   DATA SOURCES:
-   - Add Semantic Views:
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_STUDENT_ANALYTICS
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_COURSE_ANALYTICS
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ENROLLMENT_ANALYTICS
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_SUBMISSION_ANALYTICS
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_PERFORMANCE_DASHBOARD
-   
-   - Add Cortex Search Services:
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_ACTIVITY_SEARCH
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_COURSE_SEARCH
-     ✓ FGCU_CANVAS_DEMO.ANALYTICS.CANVAS_STUDENT_SEARCH
-
-5. Configure appearance (optional):
-   - Brand name: FGCU Canvas Analytics
-   - Welcome message: (use the one provided above)
-   - Color theme: #007749 (FGCU Green)
-
-6. Set visibility:
-   - Make visible to roles that need access
-
-7. Click "Create" to finalize
-
-8. Test the agent with sample questions
-
+2. Click "Create Agent" button
+3. Configure using the same settings as the SQL specification above
+4. Add the semantic views and search services as tools
+5. Test with sample questions
 */
 
 
