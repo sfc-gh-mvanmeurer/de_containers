@@ -65,20 +65,17 @@ SELECT
     course_code,
     course_name,
     department,
-    credits,
+    credit_hours,
+    course_level,
+    delivery_mode,
     term,
+    academic_year,
+    instructor_id,
     instructor_name,
-    max_enrollment,
     start_date,
     end_date,
-    status,
-    CASE 
-        WHEN course_code LIKE '%1___' THEN 'Freshman'
-        WHEN course_code LIKE '%2___' THEN 'Sophomore'
-        WHEN course_code LIKE '%3___' THEN 'Junior'
-        WHEN course_code LIKE '%4___' THEN 'Senior'
-        ELSE 'Upper Level'
-    END AS course_level,
+    max_enrollment,
+    is_current,
     created_at
 FROM FGCU_CANVAS_DEMO.CURATED.DIM_COURSES;
 
@@ -88,17 +85,25 @@ SELECT
     e.enrollment_id,
     e.student_id,
     e.course_id,
-    e.enrollment_date,
-    e.enrollment_status,
+    e.enrolled_at AS enrollment_date,
+    e.enrollment_state AS enrollment_status,
     e.final_grade,
-    e.grade_points,
-    e.last_activity_date,
+    e.final_score,
+    -- Convert score to grade points (4.0 scale)
     CASE 
-        WHEN e.grade_points >= 3.5 THEN 'Excellent'
-        WHEN e.grade_points >= 2.5 THEN 'Good'
-        WHEN e.grade_points >= 1.5 THEN 'Satisfactory'
-        WHEN e.grade_points >= 0.5 THEN 'Poor'
-        WHEN e.grade_points IS NOT NULL THEN 'Failing'
+        WHEN e.final_score >= 90 THEN 4.0
+        WHEN e.final_score >= 80 THEN 3.0
+        WHEN e.final_score >= 70 THEN 2.0
+        WHEN e.final_score >= 60 THEN 1.0
+        WHEN e.final_score IS NOT NULL THEN 0.0
+        ELSE NULL
+    END AS grade_points,
+    CASE 
+        WHEN e.final_score >= 90 THEN 'Excellent'
+        WHEN e.final_score >= 80 THEN 'Good'
+        WHEN e.final_score >= 70 THEN 'Satisfactory'
+        WHEN e.final_score >= 60 THEN 'Poor'
+        WHEN e.final_score IS NOT NULL THEN 'Failing'
         ELSE 'Not Graded'
     END AS grade_category,
     s.first_name AS student_first_name,
@@ -111,7 +116,7 @@ SELECT
     c.department,
     c.term,
     c.instructor_name,
-    c.credits,
+    c.credit_hours,
     e.created_at
 FROM FGCU_CANVAS_DEMO.CURATED.FACT_ENROLLMENTS e
 LEFT JOIN FGCU_CANVAS_DEMO.CURATED.DIM_STUDENTS s ON e.student_id = s.student_id
@@ -123,23 +128,24 @@ SELECT
     sub.submission_id,
     sub.assignment_id,
     sub.student_id,
-    sub.submission_date,
+    sub.submitted_at AS submission_date,
     sub.score,
     sub.grade,
     sub.late_flag,
     sub.attempt_number,
     sub.graded_at,
     sub.grader_id,
+    sub.percentage,
     a.assignment_name,
     a.assignment_type,
     a.points_possible,
     a.due_date,
     a.course_id,
     CASE 
-        WHEN a.points_possible > 0 AND sub.score >= a.points_possible * 0.9 THEN 'Excellent'
-        WHEN a.points_possible > 0 AND sub.score >= a.points_possible * 0.8 THEN 'Good'
-        WHEN a.points_possible > 0 AND sub.score >= a.points_possible * 0.7 THEN 'Satisfactory'
-        WHEN a.points_possible > 0 AND sub.score >= a.points_possible * 0.6 THEN 'Below Average'
+        WHEN sub.percentage >= 90 THEN 'Excellent'
+        WHEN sub.percentage >= 80 THEN 'Good'
+        WHEN sub.percentage >= 70 THEN 'Satisfactory'
+        WHEN sub.percentage >= 60 THEN 'Below Average'
         ELSE 'Failing'
     END AS score_category,
     s.first_name AS student_first_name,
@@ -159,12 +165,13 @@ SELECT
     p.term,
     p.total_assignments,
     p.completed_assignments,
-    p.average_score,
+    p.avg_score AS average_score,
     p.total_points_earned,
     p.total_points_possible,
     p.late_submissions,
-    p.on_time_submissions,
-    p.performance_grade,
+    p.missing_submissions,
+    p.total_activity_minutes,
+    p.current_grade AS performance_grade,
     p.last_activity_date,
     p.calculated_at,
     CASE 
@@ -252,7 +259,7 @@ CREATE OR REPLACE SEMANTIC VIEW CANVAS_COURSE_ANALYTICS
       PRIMARY KEY (course_id)
   )
   FACTS (
-    course_credits AS COURSES.credits
+    course_credits AS COURSES.credit_hours
       DESCRIPTION 'Number of credit hours for the course',
     max_seats AS COURSES.max_enrollment
       DESCRIPTION 'Maximum enrollment capacity'
@@ -270,24 +277,24 @@ CREATE OR REPLACE SEMANTIC VIEW CANVAS_COURSE_ANALYTICS
       DESCRIPTION 'Academic term',
     instructor AS COURSES.instructor_name
       DESCRIPTION 'Course instructor name',
-    course_status AS COURSES.status
-      DESCRIPTION 'Course status: Active, Completed',
+    delivery_mode AS COURSES.delivery_mode
+      DESCRIPTION 'Course delivery: In-Person, Online, Hybrid',
     start_date AS COURSES.start_date
       DESCRIPTION 'Course start date',
     end_date AS COURSES.end_date
       DESCRIPTION 'Course end date',
     course_level AS COURSES.course_level
-      DESCRIPTION 'Course level based on number'
+      DESCRIPTION 'Course level: Undergraduate or Graduate'
   )
   METRICS (
     total_courses AS COUNT(COURSES.course_id)
       DESCRIPTION 'Total number of courses',
-    total_credit_hours AS SUM(COURSES.credits)
+    total_credit_hours AS SUM(COURSES.credit_hours)
       DESCRIPTION 'Total credit hours offered',
     total_capacity AS SUM(COURSES.max_enrollment)
       DESCRIPTION 'Total enrollment capacity',
-    active_courses AS COUNT_IF(COURSES.status = 'Active')
-      DESCRIPTION 'Number of active courses',
+    current_courses AS COUNT_IF(COURSES.is_current = TRUE)
+      DESCRIPTION 'Number of current courses',
     unique_instructors AS COUNT(DISTINCT COURSES.instructor_name)
       DESCRIPTION 'Number of unique instructors'
   )
@@ -306,7 +313,7 @@ CREATE OR REPLACE SEMANTIC VIEW CANVAS_ENROLLMENT_ANALYTICS
   FACTS (
     grade_point AS ENROLLMENTS.grade_points
       DESCRIPTION 'Grade points earned 0.0 to 4.0',
-    credit_hours AS ENROLLMENTS.credits
+    credit_hours AS ENROLLMENTS.credit_hours
       DESCRIPTION 'Credit hours for the course'
   )
   DIMENSIONS (
@@ -350,7 +357,7 @@ CREATE OR REPLACE SEMANTIC VIEW CANVAS_ENROLLMENT_ANALYTICS
       DESCRIPTION 'Number of unique courses',
     average_grade_points AS AVG(ENROLLMENTS.grade_points)
       DESCRIPTION 'Average grade points',
-    total_credit_hours AS SUM(ENROLLMENTS.credits)
+    total_credit_hours AS SUM(ENROLLMENTS.credit_hours)
       DESCRIPTION 'Total credit hours enrolled',
     completion_rate AS COUNT_IF(ENROLLMENTS.enrollment_status = 'Completed') * 100.0 / NULLIF(COUNT(ENROLLMENTS.enrollment_id), 0)
       DESCRIPTION 'Percentage of enrollments completed',
@@ -439,8 +446,8 @@ CREATE OR REPLACE SEMANTIC VIEW CANVAS_PERFORMANCE_DASHBOARD
       DESCRIPTION 'Total points possible',
     late_count AS PERFORMANCE.late_submissions
       DESCRIPTION 'Number of late submissions',
-    ontime_count AS PERFORMANCE.on_time_submissions
-      DESCRIPTION 'Number of on-time submissions'
+    missing_count AS PERFORMANCE.missing_submissions
+      DESCRIPTION 'Number of missing submissions'
   )
   DIMENSIONS (
     student_id AS PERFORMANCE.student_id
