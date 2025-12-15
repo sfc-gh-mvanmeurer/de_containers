@@ -244,26 +244,40 @@ LIMIT 20;
 
 
 -- ============================================================================
--- STEP 5: VERIFY SEMANTIC VIEWS ARE QUERYABLE
+-- STEP 5: VERIFY SEMANTIC VIEWS EXIST
 -- ============================================================================
 
--- These simple queries test that semantic views are accessible
-SELECT 'Testing semantic view access...' AS status;
+/*
+NOTE: Direct SELECT from semantic views may require enabling the feature:
+  
+  -- Check if semantic views feature is enabled
+  SELECT SYSTEM$BEHAVIOR_CHANGE_BUNDLE_STATUS('2024_08');
+  
+  -- If needed, enable semantic views (requires ACCOUNTADMIN)
+  ALTER ACCOUNT SET ENABLE_SEMANTIC_VIEWS = TRUE;
 
--- Student Analytics
-SELECT COUNT(*) AS student_rows FROM CANVAS_STUDENT_ANALYTICS;
+Semantic views are primarily used by Cortex Analyst, not direct SQL queries.
+The agent will use them through the cortex_analyst_text_to_sql tool type.
+*/
 
--- Course Analytics
-SELECT COUNT(*) AS course_rows FROM CANVAS_COURSE_ANALYTICS;
+-- Verify semantic views were created (metadata check, not data query)
+SELECT 'Checking semantic views exist...' AS status;
+SHOW SEMANTIC VIEWS IN SCHEMA FGCU_CANVAS_DEMO.ANALYTICS;
 
--- Enrollment Analytics
-SELECT COUNT(*) AS enrollment_rows FROM CANVAS_ENROLLMENT_ANALYTICS;
+-- Describe each semantic view to verify structure
+DESCRIBE SEMANTIC VIEW CANVAS_STUDENT_ANALYTICS;
+DESCRIBE SEMANTIC VIEW CANVAS_COURSE_ANALYTICS;
+DESCRIBE SEMANTIC VIEW CANVAS_ENROLLMENT_ANALYTICS;
+DESCRIBE SEMANTIC VIEW CANVAS_SUBMISSION_ANALYTICS;
+DESCRIBE SEMANTIC VIEW CANVAS_PERFORMANCE_DASHBOARD;
 
--- Submission Analytics
-SELECT COUNT(*) AS submission_rows FROM CANVAS_SUBMISSION_ANALYTICS;
-
--- Performance Dashboard
-SELECT COUNT(*) AS performance_rows FROM CANVAS_PERFORMANCE_DASHBOARD;
+-- Verify base views are queryable (these always work)
+SELECT 'Testing base views...' AS status;
+SELECT COUNT(*) AS student_count FROM VW_STUDENTS_BASE;
+SELECT COUNT(*) AS course_count FROM VW_COURSES_BASE;
+SELECT COUNT(*) AS enrollment_count FROM VW_ENROLLMENTS_BASE;
+SELECT COUNT(*) AS submission_count FROM VW_SUBMISSIONS_BASE;
+SELECT COUNT(*) AS performance_count FROM VW_PERFORMANCE_BASE;
 
 
 -- ============================================================================
