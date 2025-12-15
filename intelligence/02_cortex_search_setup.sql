@@ -6,9 +6,9 @@ Sets up Cortex Search services for unstructured data and document search
 to complement the semantic views for structured data analysis.
 
 This enables the Snowflake Intelligence agent to search through:
-- Activity logs and descriptions
-- Course syllabi and materials (if available)
-- Student notes and comments
+- Activity logs
+- Course catalog
+- Student directory
 
 Reference: https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-search
 ================================================================================
@@ -24,7 +24,7 @@ USE SCHEMA ANALYTICS;
 
 -- ============================================================================
 -- CORTEX SEARCH SERVICE 1: ACTIVITY LOG SEARCH
--- Enables natural language search over student activity descriptions
+-- Enables natural language search over student activity logs
 -- ============================================================================
 
 -- First, create a view that prepares activity log data for search
@@ -34,14 +34,19 @@ SELECT
     student_id,
     course_id,
     activity_type,
-    activity_description,
     activity_timestamp,
+    duration_seconds,
+    page_url,
+    device_type,
+    browser,
     -- Combine fields into searchable text
-    activity_type || ': ' || COALESCE(activity_description, '') AS search_text,
+    activity_type || ' activity on ' || COALESCE(page_url, 'unknown page') || 
+    ' using ' || COALESCE(device_type, 'unknown device') || 
+    ' (' || COALESCE(browser, 'unknown browser') || ')' ||
+    ' for ' || COALESCE(TO_VARCHAR(duration_seconds), '0') || ' seconds' AS search_text,
     -- Metadata for filtering
     DATE(activity_timestamp) AS activity_date
-FROM FGCU_CANVAS_DEMO.CURATED.FACT_ACTIVITY_LOGS
-WHERE activity_description IS NOT NULL;
+FROM FGCU_CANVAS_DEMO.CURATED.FACT_ACTIVITY_LOGS;
 
 -- Create Cortex Search Service for activity logs
 CREATE OR REPLACE CORTEX SEARCH SERVICE CANVAS_ACTIVITY_SEARCH
@@ -56,8 +61,11 @@ AS (
         student_id,
         course_id,
         activity_type,
-        activity_description,
         activity_timestamp,
+        duration_seconds,
+        page_url,
+        device_type,
+        browser,
         search_text,
         activity_date
     FROM ACTIVITY_LOG_SEARCH_SOURCE
@@ -80,24 +88,29 @@ SELECT
     course_code,
     course_name,
     department,
-    credits,
+    credit_hours,
+    course_level,
+    delivery_mode,
     term,
+    academic_year,
     instructor_name,
-    status,
     start_date,
     end_date,
+    max_enrollment,
     -- Combine fields into searchable text
     course_code || ' - ' || course_name || '. ' ||
-    'Department: ' || department || '. ' ||
+    'Department: ' || COALESCE(department, 'Unknown') || '. ' ||
     'Instructor: ' || COALESCE(instructor_name, 'TBD') || '. ' ||
-    'Credits: ' || credits || '. ' ||
-    'Term: ' || term AS search_text
+    'Credits: ' || COALESCE(TO_VARCHAR(credit_hours), 'N/A') || '. ' ||
+    'Level: ' || COALESCE(course_level, 'Unknown') || '. ' ||
+    'Delivery: ' || COALESCE(delivery_mode, 'Unknown') || '. ' ||
+    'Term: ' || COALESCE(term, 'Unknown') AS search_text
 FROM FGCU_CANVAS_DEMO.CURATED.DIM_COURSES;
 
 -- Create Cortex Search Service for course catalog
 CREATE OR REPLACE CORTEX SEARCH SERVICE CANVAS_COURSE_SEARCH
     ON search_text
-    ATTRIBUTES department, term, status
+    ATTRIBUTES department, term, course_level, delivery_mode
     WAREHOUSE = FGCU_TRANSFORM_WH
     TARGET_LAG = '1 day'
     COMMENT = 'Search service for Canvas LMS course catalog'
@@ -108,12 +121,15 @@ AS (
         course_code,
         course_name,
         department,
-        credits,
+        credit_hours,
+        course_level,
+        delivery_mode,
         term,
+        academic_year,
         instructor_name,
-        status,
         start_date,
         end_date,
+        max_enrollment,
         search_text
     FROM COURSE_CATALOG_SEARCH_SOURCE
 );
@@ -139,12 +155,16 @@ SELECT
     classification,
     enrollment_status,
     gpa,
+    advisor_id,
+    enrollment_date,
+    expected_graduation,
     -- Combine fields into searchable text
     first_name || ' ' || last_name || '. ' ||
-    'Major: ' || major || '. ' ||
-    'Classification: ' || classification || '. ' ||
-    'Status: ' || enrollment_status || '. ' ||
-    'GPA: ' || ROUND(gpa, 2) AS search_text
+    'Major: ' || COALESCE(major, 'Undeclared') || '. ' ||
+    'Classification: ' || COALESCE(classification, 'Unknown') || '. ' ||
+    'Status: ' || COALESCE(enrollment_status, 'Unknown') || '. ' ||
+    'GPA: ' || COALESCE(TO_VARCHAR(ROUND(gpa, 2)), 'N/A') || '. ' ||
+    'Email: ' || COALESCE(email, 'N/A') AS search_text
 FROM FGCU_CANVAS_DEMO.CURATED.DIM_STUDENTS;
 
 -- Create Cortex Search Service for student directory
@@ -166,106 +186,14 @@ AS (
         classification,
         enrollment_status,
         gpa,
+        advisor_id,
+        enrollment_date,
+        expected_graduation,
         search_text
     FROM STUDENT_DIRECTORY_SEARCH_SOURCE
 );
 
 GRANT USAGE ON CORTEX SEARCH SERVICE CANVAS_STUDENT_SEARCH TO ROLE PUBLIC;
-
-
--- ============================================================================
--- HELPER FUNCTIONS FOR SEARCH
--- ============================================================================
-
--- Function to search activities by natural language query
-CREATE OR REPLACE FUNCTION SEARCH_ACTIVITIES(query STRING, max_results INT DEFAULT 10)
-RETURNS TABLE (
-    activity_id STRING,
-    student_id STRING,
-    course_id STRING,
-    activity_type STRING,
-    activity_description STRING,
-    activity_timestamp TIMESTAMP,
-    relevance_score FLOAT
-)
-AS
-$$
-    SELECT 
-        activity_id,
-        student_id,
-        course_id,
-        activity_type,
-        activity_description,
-        activity_timestamp,
-        score AS relevance_score
-    FROM TABLE(
-        CORTEX_SEARCH(
-            'CANVAS_ACTIVITY_SEARCH',
-            query,
-            max_results
-        )
-    )
-$$;
-
--- Function to search courses by natural language query
-CREATE OR REPLACE FUNCTION SEARCH_COURSES(query STRING, max_results INT DEFAULT 10)
-RETURNS TABLE (
-    course_id STRING,
-    course_code STRING,
-    course_name STRING,
-    department STRING,
-    instructor_name STRING,
-    term STRING,
-    relevance_score FLOAT
-)
-AS
-$$
-    SELECT 
-        course_id,
-        course_code,
-        course_name,
-        department,
-        instructor_name,
-        term,
-        score AS relevance_score
-    FROM TABLE(
-        CORTEX_SEARCH(
-            'CANVAS_COURSE_SEARCH',
-            query,
-            max_results
-        )
-    )
-$$;
-
--- Function to search students by natural language query
-CREATE OR REPLACE FUNCTION SEARCH_STUDENTS(query STRING, max_results INT DEFAULT 10)
-RETURNS TABLE (
-    student_id STRING,
-    full_name STRING,
-    major STRING,
-    classification STRING,
-    enrollment_status STRING,
-    gpa FLOAT,
-    relevance_score FLOAT
-)
-AS
-$$
-    SELECT 
-        student_id,
-        full_name,
-        major,
-        classification,
-        enrollment_status,
-        gpa,
-        score AS relevance_score
-    FROM TABLE(
-        CORTEX_SEARCH(
-            'CANVAS_STUDENT_SEARCH',
-            query,
-            max_results
-        )
-    )
-$$;
 
 
 -- ============================================================================
@@ -275,11 +203,7 @@ $$;
 -- Show all Cortex Search services
 SHOW CORTEX SEARCH SERVICES IN SCHEMA FGCU_CANVAS_DEMO.ANALYTICS;
 
--- Test the search services (uncomment to test)
--- SELECT * FROM TABLE(SEARCH_ACTIVITIES('quiz submission', 5));
--- SELECT * FROM TABLE(SEARCH_COURSES('computer science programming', 5));
--- SELECT * FROM TABLE(SEARCH_STUDENTS('computer science senior', 5));
+-- Show the source views
+SHOW VIEWS LIKE '%SEARCH_SOURCE%' IN SCHEMA FGCU_CANVAS_DEMO.ANALYTICS;
 
-PRINT '✅ Cortex Search services created successfully!';
-PRINT 'Next step: Run 03_intelligence_agent.sql';
-
+SELECT 'Cortex Search services setup complete!' AS status;
