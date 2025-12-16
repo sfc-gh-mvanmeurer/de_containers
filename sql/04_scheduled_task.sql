@@ -318,6 +318,53 @@ BEGIN
 END;
 $$;
 
+-- Procedure to process raw activity logs (uses PARSE_JSON for string payload)
+CREATE OR REPLACE PROCEDURE PROC_PROCESS_RAW_ACTIVITY_LOGS()
+RETURNS VARCHAR
+LANGUAGE SQL
+AS
+$$
+BEGIN
+    MERGE INTO CURATED.FACT_ACTIVITY_LOGS tgt
+    USING (
+        SELECT 
+            PARSE_JSON(r.payload):activity_id::VARCHAR AS activity_id,
+            s.student_key,
+            c.course_key,
+            PARSE_JSON(r.payload):student_id::VARCHAR AS student_id,
+            PARSE_JSON(r.payload):course_id::VARCHAR AS course_id,
+            PARSE_JSON(r.payload):activity_type::VARCHAR AS activity_type,
+            PARSE_JSON(r.payload):activity_timestamp::TIMESTAMP_NTZ AS activity_timestamp,
+            PARSE_JSON(r.payload):duration_seconds::NUMBER AS duration_seconds,
+            PARSE_JSON(r.payload):page_url::VARCHAR AS page_url,
+            PARSE_JSON(r.payload):device_type::VARCHAR AS device_type,
+            PARSE_JSON(r.payload):browser::VARCHAR AS browser,
+            PARSE_JSON(r.payload):ip_address::VARCHAR AS ip_address
+        FROM RAW_ACTIVITY_LOGS r
+        LEFT JOIN CURATED.DIM_STUDENTS s ON PARSE_JSON(r.payload):student_id::VARCHAR = s.student_id
+        LEFT JOIN CURATED.DIM_COURSES c ON PARSE_JSON(r.payload):course_id::VARCHAR = c.course_id
+        WHERE r.processing_status = 'PENDING'
+    ) src
+    ON tgt.activity_id = src.activity_id
+    WHEN NOT MATCHED THEN INSERT (
+        activity_id, student_key, course_key, student_id, course_id,
+        activity_type, activity_timestamp, duration_seconds, page_url,
+        device_type, browser, ip_address
+    ) VALUES (
+        src.activity_id, src.student_key, src.course_key, src.student_id, src.course_id,
+        src.activity_type, src.activity_timestamp, src.duration_seconds, src.page_url,
+        src.device_type, src.browser, src.ip_address
+    );
+    
+    UPDATE RAW_ACTIVITY_LOGS
+    SET processing_status = 'PROCESSED'
+    WHERE processing_status = 'PENDING';
+    
+    RETURN 'Activity logs processed successfully';
+END;
+$$;
+
+
 -- Procedure to trigger container ETL
 CREATE OR REPLACE PROCEDURE PROC_TRIGGER_CONTAINER_ETL()
 RETURNS VARCHAR
@@ -460,6 +507,7 @@ BEGIN
     CALL PROC_PROCESS_RAW_ENROLLMENTS();
     CALL PROC_PROCESS_RAW_ASSIGNMENTS();
     CALL PROC_PROCESS_RAW_SUBMISSIONS();
+    CALL PROC_PROCESS_RAW_ACTIVITY_LOGS();
     RETURN 'All raw data processed successfully';
 END;
 $$;
