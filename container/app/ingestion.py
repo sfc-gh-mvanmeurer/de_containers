@@ -68,22 +68,23 @@ class DataIngestionPipeline:
         
         try:
             # Execute MERGE to upsert into dimension table
+            # Note: payload is stored as VARCHAR (JSON string), so we use PARSE_JSON()
             self.session.sql(f"""
                 MERGE INTO {self.database}.{self.curated_schema}.DIM_STUDENTS tgt
                 USING (
                     SELECT 
-                        payload:student_id::VARCHAR AS student_id,
-                        payload:canvas_user_id::NUMBER AS canvas_user_id,
-                        payload:first_name::VARCHAR AS first_name,
-                        payload:last_name::VARCHAR AS last_name,
-                        payload:email::VARCHAR AS email,
-                        payload:major::VARCHAR AS major,
-                        payload:classification::VARCHAR AS classification,
-                        payload:enrollment_status::VARCHAR AS enrollment_status,
-                        payload:enrollment_date::DATE AS enrollment_date,
-                        payload:expected_graduation::DATE AS expected_graduation,
-                        payload:gpa::DECIMAL(3,2) AS gpa,
-                        payload:advisor_id::VARCHAR AS advisor_id
+                        PARSE_JSON(payload):student_id::VARCHAR AS student_id,
+                        PARSE_JSON(payload):canvas_user_id::NUMBER AS canvas_user_id,
+                        PARSE_JSON(payload):first_name::VARCHAR AS first_name,
+                        PARSE_JSON(payload):last_name::VARCHAR AS last_name,
+                        PARSE_JSON(payload):email::VARCHAR AS email,
+                        PARSE_JSON(payload):major::VARCHAR AS major,
+                        PARSE_JSON(payload):classification::VARCHAR AS classification,
+                        PARSE_JSON(payload):enrollment_status::VARCHAR AS enrollment_status,
+                        PARSE_JSON(payload):enrollment_date::DATE AS enrollment_date,
+                        PARSE_JSON(payload):expected_graduation::DATE AS expected_graduation,
+                        PARSE_JSON(payload):gpa::DECIMAL(3,2) AS gpa,
+                        PARSE_JSON(payload):advisor_id::VARCHAR AS advisor_id
                     FROM {self.database}.{self.raw_schema}.RAW_STUDENTS
                     WHERE processing_status = 'PENDING'
                 ) src
@@ -131,25 +132,26 @@ class DataIngestionPipeline:
             return 0
         
         try:
+            # Note: payload is stored as VARCHAR (JSON string), so we use PARSE_JSON()
             self.session.sql(f"""
                 MERGE INTO {self.database}.{self.curated_schema}.DIM_COURSES tgt
                 USING (
                     SELECT 
-                        payload:course_id::VARCHAR AS course_id,
-                        payload:canvas_course_id::NUMBER AS canvas_course_id,
-                        payload:course_code::VARCHAR AS course_code,
-                        payload:course_name::VARCHAR AS course_name,
-                        payload:department::VARCHAR AS department,
-                        payload:credit_hours::NUMBER AS credit_hours,
-                        payload:course_level::VARCHAR AS course_level,
-                        payload:delivery_mode::VARCHAR AS delivery_mode,
-                        payload:term::VARCHAR AS term,
-                        payload:academic_year::VARCHAR AS academic_year,
-                        payload:instructor_id::VARCHAR AS instructor_id,
-                        payload:instructor_name::VARCHAR AS instructor_name,
-                        payload:start_date::DATE AS start_date,
-                        payload:end_date::DATE AS end_date,
-                        payload:max_enrollment::NUMBER AS max_enrollment
+                        PARSE_JSON(payload):course_id::VARCHAR AS course_id,
+                        PARSE_JSON(payload):canvas_course_id::NUMBER AS canvas_course_id,
+                        PARSE_JSON(payload):course_code::VARCHAR AS course_code,
+                        PARSE_JSON(payload):course_name::VARCHAR AS course_name,
+                        PARSE_JSON(payload):department::VARCHAR AS department,
+                        PARSE_JSON(payload):credit_hours::NUMBER AS credit_hours,
+                        PARSE_JSON(payload):course_level::VARCHAR AS course_level,
+                        PARSE_JSON(payload):delivery_mode::VARCHAR AS delivery_mode,
+                        PARSE_JSON(payload):term::VARCHAR AS term,
+                        PARSE_JSON(payload):academic_year::VARCHAR AS academic_year,
+                        PARSE_JSON(payload):instructor_id::VARCHAR AS instructor_id,
+                        PARSE_JSON(payload):instructor_name::VARCHAR AS instructor_name,
+                        PARSE_JSON(payload):start_date::DATE AS start_date,
+                        PARSE_JSON(payload):end_date::DATE AS end_date,
+                        PARSE_JSON(payload):max_enrollment::NUMBER AS max_enrollment
                     FROM {self.database}.{self.raw_schema}.RAW_COURSES
                     WHERE processing_status = 'PENDING'
                 ) src
@@ -202,26 +204,27 @@ class DataIngestionPipeline:
             return 0
         
         try:
+            # Note: payload is stored as VARCHAR (JSON string), so we use PARSE_JSON()
             self.session.sql(f"""
                 MERGE INTO {self.database}.{self.curated_schema}.FACT_ENROLLMENTS tgt
                 USING (
                     SELECT 
-                        r.payload:enrollment_id::VARCHAR AS enrollment_id,
+                        PARSE_JSON(r.payload):enrollment_id::VARCHAR AS enrollment_id,
                         s.student_key,
                         c.course_key,
-                        r.payload:student_id::VARCHAR AS student_id,
-                        r.payload:course_id::VARCHAR AS course_id,
-                        r.payload:enrollment_state::VARCHAR AS enrollment_state,
-                        r.payload:enrollment_type::VARCHAR AS enrollment_type,
-                        r.payload:enrolled_at::TIMESTAMP_NTZ AS enrolled_at,
-                        r.payload:completed_at::TIMESTAMP_NTZ AS completed_at,
-                        r.payload:final_grade::VARCHAR AS final_grade,
-                        r.payload:final_score::DECIMAL(5,2) AS final_score
+                        PARSE_JSON(r.payload):student_id::VARCHAR AS student_id,
+                        PARSE_JSON(r.payload):course_id::VARCHAR AS course_id,
+                        PARSE_JSON(r.payload):enrollment_state::VARCHAR AS enrollment_state,
+                        PARSE_JSON(r.payload):enrollment_type::VARCHAR AS enrollment_type,
+                        PARSE_JSON(r.payload):enrolled_at::TIMESTAMP_NTZ AS enrolled_at,
+                        PARSE_JSON(r.payload):completed_at::TIMESTAMP_NTZ AS completed_at,
+                        PARSE_JSON(r.payload):final_grade::VARCHAR AS final_grade,
+                        PARSE_JSON(r.payload):final_score::DECIMAL(5,2) AS final_score
                     FROM {self.database}.{self.raw_schema}.RAW_ENROLLMENTS r
                     LEFT JOIN {self.database}.{self.curated_schema}.DIM_STUDENTS s 
-                        ON r.payload:student_id::VARCHAR = s.student_id
+                        ON PARSE_JSON(r.payload):student_id::VARCHAR = s.student_id
                     LEFT JOIN {self.database}.{self.curated_schema}.DIM_COURSES c 
-                        ON r.payload:course_id::VARCHAR = c.course_id
+                        ON PARSE_JSON(r.payload):course_id::VARCHAR = c.course_id
                     WHERE r.processing_status = 'PENDING'
                 ) src
                 ON tgt.enrollment_id = src.enrollment_id
@@ -263,32 +266,33 @@ class DataIngestionPipeline:
             return 0
         
         try:
+            # Note: payload is stored as VARCHAR (JSON string), so we use PARSE_JSON()
             self.session.sql(f"""
                 MERGE INTO {self.database}.{self.curated_schema}.FACT_SUBMISSIONS tgt
                 USING (
                     SELECT 
-                        r.payload:submission_id::VARCHAR AS submission_id,
+                        PARSE_JSON(r.payload):submission_id::VARCHAR AS submission_id,
                         s.student_key,
                         a.assignment_key,
-                        r.payload:student_id::VARCHAR AS student_id,
-                        r.payload:assignment_id::VARCHAR AS assignment_id,
-                        r.payload:submitted_at::TIMESTAMP_NTZ AS submitted_at,
-                        r.payload:graded_at::TIMESTAMP_NTZ AS graded_at,
-                        r.payload:score::DECIMAL(10,2) AS score,
-                        r.payload:grade::VARCHAR AS grade,
-                        r.payload:points_possible::DECIMAL(10,2) AS points_possible,
-                        r.payload:percentage::DECIMAL(5,2) AS percentage,
-                        r.payload:submission_type::VARCHAR AS submission_type,
-                        r.payload:attempt_number::NUMBER AS attempt_number,
-                        r.payload:late_flag::BOOLEAN AS late_flag,
-                        r.payload:missing_flag::BOOLEAN AS missing_flag,
-                        r.payload:excused_flag::BOOLEAN AS excused_flag,
-                        r.payload:grader_id::VARCHAR AS grader_id
+                        PARSE_JSON(r.payload):student_id::VARCHAR AS student_id,
+                        PARSE_JSON(r.payload):assignment_id::VARCHAR AS assignment_id,
+                        PARSE_JSON(r.payload):submitted_at::TIMESTAMP_NTZ AS submitted_at,
+                        PARSE_JSON(r.payload):graded_at::TIMESTAMP_NTZ AS graded_at,
+                        PARSE_JSON(r.payload):score::DECIMAL(10,2) AS score,
+                        PARSE_JSON(r.payload):grade::VARCHAR AS grade,
+                        PARSE_JSON(r.payload):points_possible::DECIMAL(10,2) AS points_possible,
+                        PARSE_JSON(r.payload):percentage::DECIMAL(5,2) AS percentage,
+                        PARSE_JSON(r.payload):submission_type::VARCHAR AS submission_type,
+                        PARSE_JSON(r.payload):attempt_number::NUMBER AS attempt_number,
+                        PARSE_JSON(r.payload):late_flag::BOOLEAN AS late_flag,
+                        PARSE_JSON(r.payload):missing_flag::BOOLEAN AS missing_flag,
+                        PARSE_JSON(r.payload):excused_flag::BOOLEAN AS excused_flag,
+                        PARSE_JSON(r.payload):grader_id::VARCHAR AS grader_id
                     FROM {self.database}.{self.raw_schema}.RAW_SUBMISSIONS r
                     LEFT JOIN {self.database}.{self.curated_schema}.DIM_STUDENTS s 
-                        ON r.payload:student_id::VARCHAR = s.student_id
+                        ON PARSE_JSON(r.payload):student_id::VARCHAR = s.student_id
                     LEFT JOIN {self.database}.{self.curated_schema}.DIM_ASSIGNMENTS a 
-                        ON r.payload:assignment_id::VARCHAR = a.assignment_id
+                        ON PARSE_JSON(r.payload):assignment_id::VARCHAR = a.assignment_id
                     WHERE r.processing_status = 'PENDING'
                 ) src
                 ON tgt.submission_id = src.submission_id
@@ -334,6 +338,7 @@ class DataIngestionPipeline:
             return 0
         
         try:
+            # Note: payload is stored as VARCHAR (JSON string), so we use PARSE_JSON()
             self.session.sql(f"""
                 INSERT INTO {self.database}.{self.curated_schema}.FACT_ACTIVITY_LOGS (
                     activity_id, student_key, course_key, student_id, course_id,
@@ -341,23 +346,23 @@ class DataIngestionPipeline:
                     page_url, device_type, browser, ip_address
                 )
                 SELECT 
-                    r.payload:activity_id::VARCHAR,
+                    PARSE_JSON(r.payload):activity_id::VARCHAR,
                     s.student_key,
                     c.course_key,
-                    r.payload:student_id::VARCHAR,
-                    r.payload:course_id::VARCHAR,
-                    r.payload:activity_type::VARCHAR,
-                    r.payload:activity_timestamp::TIMESTAMP_NTZ,
-                    r.payload:duration_seconds::NUMBER,
-                    r.payload:page_url::VARCHAR,
-                    r.payload:device_type::VARCHAR,
-                    r.payload:browser::VARCHAR,
-                    r.payload:ip_address::VARCHAR
+                    PARSE_JSON(r.payload):student_id::VARCHAR,
+                    PARSE_JSON(r.payload):course_id::VARCHAR,
+                    PARSE_JSON(r.payload):activity_type::VARCHAR,
+                    PARSE_JSON(r.payload):activity_timestamp::TIMESTAMP_NTZ,
+                    PARSE_JSON(r.payload):duration_seconds::NUMBER,
+                    PARSE_JSON(r.payload):page_url::VARCHAR,
+                    PARSE_JSON(r.payload):device_type::VARCHAR,
+                    PARSE_JSON(r.payload):browser::VARCHAR,
+                    PARSE_JSON(r.payload):ip_address::VARCHAR
                 FROM {self.database}.{self.raw_schema}.RAW_ACTIVITY_LOGS r
                 LEFT JOIN {self.database}.{self.curated_schema}.DIM_STUDENTS s 
-                    ON r.payload:student_id::VARCHAR = s.student_id
+                    ON PARSE_JSON(r.payload):student_id::VARCHAR = s.student_id
                 LEFT JOIN {self.database}.{self.curated_schema}.DIM_COURSES c 
-                    ON r.payload:course_id::VARCHAR = c.course_id
+                    ON PARSE_JSON(r.payload):course_id::VARCHAR = c.course_id
                 WHERE r.processing_status = 'PENDING'
             """).collect()
             

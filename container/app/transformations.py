@@ -75,22 +75,23 @@ class TransformationEngine:
         logger.info("Applying assignment transformations...")
         
         # Process any pending assignment records
+        # Note: payload is stored as VARCHAR (JSON string), so we use PARSE_JSON()
         result = self.session.sql(f"""
             MERGE INTO {self.database}.{self.curated_schema}.DIM_ASSIGNMENTS tgt
             USING (
                 SELECT 
-                    r.payload:assignment_id::VARCHAR AS assignment_id,
-                    r.payload:canvas_assignment_id::NUMBER AS canvas_assignment_id,
-                    r.payload:course_id::VARCHAR AS course_id,
-                    r.payload:assignment_name::VARCHAR AS assignment_name,
-                    r.payload:assignment_type::VARCHAR AS assignment_type,
-                    r.payload:points_possible::DECIMAL(10,2) AS points_possible,
-                    r.payload:due_date::TIMESTAMP_NTZ AS due_date,
-                    r.payload:unlock_date::TIMESTAMP_NTZ AS unlock_date,
-                    r.payload:lock_date::TIMESTAMP_NTZ AS lock_date,
-                    r.payload:submission_types::VARCHAR AS submission_types,
-                    r.payload:is_group_assignment::BOOLEAN AS is_group_assignment,
-                    r.payload:weight::DECIMAL(5,2) AS weight
+                    PARSE_JSON(r.payload):assignment_id::VARCHAR AS assignment_id,
+                    PARSE_JSON(r.payload):canvas_assignment_id::NUMBER AS canvas_assignment_id,
+                    PARSE_JSON(r.payload):course_id::VARCHAR AS course_id,
+                    PARSE_JSON(r.payload):assignment_name::VARCHAR AS assignment_name,
+                    PARSE_JSON(r.payload):assignment_type::VARCHAR AS assignment_type,
+                    PARSE_JSON(r.payload):points_possible::DECIMAL(10,2) AS points_possible,
+                    PARSE_JSON(r.payload):due_date::TIMESTAMP_NTZ AS due_date,
+                    PARSE_JSON(r.payload):unlock_date::TIMESTAMP_NTZ AS unlock_date,
+                    PARSE_JSON(r.payload):lock_date::TIMESTAMP_NTZ AS lock_date,
+                    PARSE_JSON(r.payload):submission_types::VARCHAR AS submission_types,
+                    PARSE_JSON(r.payload):is_group_assignment::BOOLEAN AS is_group_assignment,
+                    PARSE_JSON(r.payload):weight::DECIMAL(5,2) AS weight
                 FROM {self.database}.RAW.RAW_ASSIGNMENTS r
                 WHERE r.processing_status = 'PENDING'
             ) src
