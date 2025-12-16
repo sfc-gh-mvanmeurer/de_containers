@@ -215,11 +215,11 @@ import random
 
 def generate_enrollments(session: Session, enrollments_per_student: int) -> str:
     students_df = session.sql(
-        "SELECT payload:student_id::VARCHAR as student_id FROM RAW_STUDENTS WHERE processing_status != 'ERROR'"
+        "SELECT PARSE_JSON(payload):student_id::VARCHAR as student_id FROM RAW_STUDENTS WHERE processing_status != 'ERROR'"
     ).collect()
     
     courses_df = session.sql(
-        "SELECT payload:course_id::VARCHAR as course_id, payload:term::VARCHAR as term FROM RAW_COURSES WHERE processing_status != 'ERROR'"
+        "SELECT PARSE_JSON(payload):course_id::VARCHAR as course_id, PARSE_JSON(payload):term::VARCHAR as term FROM RAW_COURSES WHERE processing_status != 'ERROR'"
     ).collect()
     
     if not students_df or not courses_df:
@@ -277,7 +277,7 @@ from datetime import datetime, timedelta
 
 def generate_assignments(session: Session, assignments_per_course: int) -> str:
     courses_df = session.sql(
-        "SELECT payload:course_id::VARCHAR as course_id FROM RAW_COURSES WHERE processing_status != 'ERROR'"
+        "SELECT PARSE_JSON(payload):course_id::VARCHAR as course_id FROM RAW_COURSES WHERE processing_status != 'ERROR'"
     ).collect()
     
     if not courses_df:
@@ -352,11 +352,11 @@ from datetime import datetime, timedelta
 def generate_submissions(session: Session) -> str:
     pairs_df = session.sql("""
         SELECT DISTINCT
-            e.payload:student_id::VARCHAR as student_id,
-            a.payload:assignment_id::VARCHAR as assignment_id,
-            a.payload:points_possible::NUMBER as points_possible
+            PARSE_JSON(e.payload):student_id::VARCHAR as student_id,
+            PARSE_JSON(a.payload):assignment_id::VARCHAR as assignment_id,
+            PARSE_JSON(a.payload):points_possible::NUMBER as points_possible
         FROM RAW_ENROLLMENTS e
-        JOIN RAW_ASSIGNMENTS a ON e.payload:course_id = a.payload:course_id
+        JOIN RAW_ASSIGNMENTS a ON PARSE_JSON(e.payload):course_id = PARSE_JSON(a.payload):course_id
         WHERE e.processing_status != 'ERROR' AND a.processing_status != 'ERROR'
         LIMIT 5000
     """).collect()
@@ -437,8 +437,8 @@ from datetime import datetime, timedelta
 def generate_activity_logs(session: Session, logs_per_enrollment: int) -> str:
     enrollments_df = session.sql("""
         SELECT 
-            payload:student_id::VARCHAR as student_id,
-            payload:course_id::VARCHAR as course_id
+            PARSE_JSON(payload):student_id::VARCHAR as student_id,
+            PARSE_JSON(payload):course_id::VARCHAR as course_id
         FROM RAW_ENROLLMENTS
         WHERE processing_status != 'ERROR'
         LIMIT 1000
