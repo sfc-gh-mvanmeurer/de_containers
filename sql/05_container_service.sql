@@ -47,6 +47,7 @@ spec:
         SNOWFLAKE_DATABASE: FGCU_CANVAS_DEMO
         SNOWFLAKE_SCHEMA_RAW: RAW
         SNOWFLAKE_SCHEMA_CURATED: CURATED
+        SNOWFLAKE_WAREHOUSE: FGCU_TRANSFORM_WH
         LOG_LEVEL: INFO
       resources:
         requests:
@@ -69,6 +70,7 @@ $$
     MIN_INSTANCES = 1
     MAX_INSTANCES = 2
     EXTERNAL_ACCESS_INTEGRATIONS = (FGCU_EXTERNAL_ACCESS)
+    QUERY_WAREHOUSE = FGCU_TRANSFORM_WH
     COMMENT = 'Canvas data engineering ETL service';
 
 -- ============================================================================

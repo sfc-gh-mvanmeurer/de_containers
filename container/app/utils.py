@@ -82,13 +82,52 @@ class SnowflakeConnection:
         """Create and return a Snowpark session."""
         try:
             # Check if running inside Snowpark Container Services
-            # SPCS provides automatic authentication via service token
             if self._is_running_in_spcs():
-                self.logger.info("Running in SPCS - using automatic authentication")
-                self.session = Session.builder.configs({
-                    "database": self.connection_params.get("database"),
-                    "schema": self.connection_params.get("schema")
-                }).create()
+                self.logger.info("Running in SPCS - using Snowflake login token")
+                
+                # Method 1: Try using the SPCS login token (most common approach)
+                import httpx
+                
+                # Get login token from SPCS metadata service
+                token_url = "http://localhost:8085/v1/token"
+                
+                try:
+                    # Request a login token from the local metadata service
+                    resp = httpx.get(token_url, timeout=5)
+                    resp.raise_for_status()
+                    token_data = resp.json()
+                    
+                    self.session = Session.builder.configs({
+                        "host": token_data.get("host", os.getenv("SNOWFLAKE_HOST")),
+                        "account": token_data.get("account", os.getenv("SNOWFLAKE_ACCOUNT")),
+                        "authenticator": "oauth",
+                        "token": token_data.get("token"),
+                        "database": self.connection_params.get("database", "FGCU_CANVAS_DEMO"),
+                        "schema": self.connection_params.get("schema", "RAW"),
+                        "warehouse": self.connection_params.get("warehouse", "FGCU_TRANSFORM_WH")
+                    }).create()
+                    
+                except httpx.RequestError:
+                    # Fallback: Try reading from token file
+                    self.logger.info("Metadata service unavailable, trying token file")
+                    token_file = "/snowflake/session/token"
+                    
+                    if os.path.exists(token_file):
+                        with open(token_file, 'r') as f:
+                            token = f.read().strip()
+                        
+                        self.session = Session.builder.configs({
+                            "host": os.getenv("SNOWFLAKE_HOST"),
+                            "account": os.getenv("SNOWFLAKE_ACCOUNT"),
+                            "authenticator": "oauth",
+                            "token": token,
+                            "database": self.connection_params.get("database", "FGCU_CANVAS_DEMO"),
+                            "schema": self.connection_params.get("schema", "RAW"),
+                            "warehouse": self.connection_params.get("warehouse", "FGCU_TRANSFORM_WH")
+                        }).create()
+                    else:
+                        raise ValueError("No SPCS authentication method available")
+                
             else:
                 # Local/external execution - use provided credentials
                 self.logger.info("Running externally - using provided credentials")
@@ -112,9 +151,13 @@ class SnowflakeConnection:
                 
     def _is_running_in_spcs(self) -> bool:
         """Check if running inside Snowpark Container Services."""
-        # SPCS sets specific environment variables
-        return os.getenv("SNOWFLAKE_SERVICE_TOKEN") is not None or \
-               os.path.exists("/snowflake/session/token")
+        # SPCS indicators: token file exists, specific env vars, or metadata service available
+        indicators = [
+            os.path.exists("/snowflake/session/token"),
+            os.getenv("SNOWFLAKE_HOST") is not None and "snowflakecomputing" in os.getenv("SNOWFLAKE_HOST", ""),
+            os.path.exists("/snowflake")
+        ]
+        return any(indicators)
 
 
 @contextmanager
