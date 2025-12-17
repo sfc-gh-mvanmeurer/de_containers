@@ -696,6 +696,123 @@
             </div>
         </section>
 
+        <!-- SPCS Networking -->
+        <section class="section">
+            <span class="section-label" style="background: linear-gradient(135deg, var(--sf-purple) 0%, var(--sf-blue) 100%);">Deep Dive</span>
+            <h2>SPCS Networking & Security</h2>
+            <p class="lead">
+                Snowpark Container Services provides enterprise-grade isolation by default. 
+                External access requires explicit configuration through Network Rules and External Access Integrations.
+            </p>
+
+            <!-- Networking Diagram -->
+            <div style="background: var(--sf-gradient-dark); border-radius: 24px; padding: 40px; margin: 32px 0; color: white;">
+                <h4 style="font-size: 20px; font-weight: 600; margin-bottom: 24px; text-align: center;">Container Network Architecture</h4>
+                <div style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 16px; align-items: center; text-align: center;">
+                    <!-- External -->
+                    <div style="background: rgba(255,255,255,0.1); border-radius: 16px; padding: 20px;">
+                        <div style="font-size: 32px; margin-bottom: 8px;">🌐</div>
+                        <h5 style="font-size: 14px; font-weight: 600;">External APIs</h5>
+                        <p style="font-size: 11px; color: var(--sf-gray-400);">Canvas LMS<br/>SaaS Services</p>
+                    </div>
+                    <!-- Arrow with EAI -->
+                    <div>
+                        <div style="font-size: 12px; background: var(--sf-purple); padding: 4px 12px; border-radius: 20px; margin-bottom: 8px;">EAI</div>
+                        <div style="font-size: 20px;">⬅️➡️</div>
+                        <div style="font-size: 10px; color: var(--sf-gray-400); margin-top: 4px;">Network Rules</div>
+                    </div>
+                    <!-- SPCS Container -->
+                    <div style="background: linear-gradient(135deg, rgba(41, 181, 232, 0.3) 0%, rgba(124, 58, 237, 0.3) 100%); border: 2px solid var(--sf-blue); border-radius: 16px; padding: 20px;">
+                        <div style="font-size: 32px; margin-bottom: 8px;">🐳</div>
+                        <h5 style="font-size: 14px; font-weight: 600;">SPCS Container</h5>
+                        <p style="font-size: 11px; color: var(--sf-gray-200);">Your ETL Code<br/>Isolated by Default</p>
+                    </div>
+                    <!-- Arrow Internal -->
+                    <div>
+                        <div style="font-size: 12px; background: var(--sf-cyan); color: var(--sf-navy); padding: 4px 12px; border-radius: 20px; margin-bottom: 8px;">OAuth</div>
+                        <div style="font-size: 20px;">⬅️➡️</div>
+                        <div style="font-size: 10px; color: var(--sf-gray-400); margin-top: 4px;">Internal Token</div>
+                    </div>
+                    <!-- Snowflake -->
+                    <div style="background: rgba(255,255,255,0.1); border-radius: 16px; padding: 20px;">
+                        <div style="font-size: 32px; margin-bottom: 8px;">❄️</div>
+                        <h5 style="font-size: 14px; font-weight: 600;">Snowflake</h5>
+                        <p style="font-size: 11px; color: var(--sf-gray-400);">Tables, Stages<br/>Warehouses</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cards-grid">
+                <!-- Egress -->
+                <div class="card" style="border-top: 4px solid var(--sf-purple);">
+                    <div class="card-icon" style="background: linear-gradient(135deg, var(--sf-purple) 0%, var(--sf-blue) 100%);">➡️</div>
+                    <h3>Data Egress (Out)</h3>
+                    <p>Connect to external APIs (Canvas LMS, SaaS services) using Network Rules 
+                    and External Access Integrations. Explicit allowlisting required.</p>
+                    <div class="code-block" style="margin-top: 16px;">
+                        <pre style="font-size: 11px;"><span class="comment">-- 1. Define allowed destinations</span>
+<span class="keyword">CREATE</span> NETWORK RULE canvas_rule
+  TYPE = <span class="string">'HOST_PORT'</span>
+  MODE = <span class="string">'EGRESS'</span>
+  VALUE_LIST = (<span class="string">'fgcu.instructure.com:443'</span>);
+
+<span class="comment">-- 2. Create firewall policy</span>
+<span class="keyword">CREATE</span> EXTERNAL ACCESS INTEGRATION canvas_eai
+  ALLOWED_NETWORK_RULES = (canvas_rule)
+  ENABLED = <span class="keyword">TRUE</span>;</pre>
+                    </div>
+                    <span class="tech-tag">External Access Integration</span>
+                </div>
+
+                <!-- Ingress -->
+                <div class="card" style="border-top: 4px solid var(--sf-blue);">
+                    <div class="card-icon">⬅️</div>
+                    <h3>Data Ingress (In)</h3>
+                    <p>Expose service endpoints for external callers (webhooks, APIs). 
+                    Snowflake manages secure proxy with OAuth integration support.</p>
+                    <div class="code-block" style="margin-top: 16px;">
+                        <pre style="font-size: 11px;"><span class="comment">-- Service spec with public endpoint</span>
+spec:
+  endpoints:
+    - name: webhook-endpoint
+      port: 8080
+      <span class="keyword">public: true</span>  <span class="comment"># Exposes URL</span>
+  serviceRoles:
+    - name: ingress-role
+      endpoints:
+        - webhook-endpoint</pre>
+                    </div>
+                    <span class="tech-tag">Public Ingress</span>
+                </div>
+
+                <!-- Internal -->
+                <div class="card" style="border-top: 4px solid var(--sf-cyan);">
+                    <div class="card-icon" style="background: linear-gradient(135deg, var(--sf-cyan) 0%, var(--sf-blue) 100%);">🔐</div>
+                    <h3>Internal Snowflake Access</h3>
+                    <p>Containers automatically receive OAuth tokens for secure Snowflake access. 
+                    No credentials in code—authentication is handled by the platform.</p>
+                    <div class="code-block" style="margin-top: 16px;">
+                        <pre style="font-size: 11px;"><span class="comment"># Python: Auto-authentication in SPCS</span>
+<span class="keyword">from</span> snowflake.snowpark <span class="keyword">import</span> Session
+
+<span class="comment"># Token mounted at /snowflake/session/token</span>
+session = Session.builder.configs({
+    <span class="string">"authenticator"</span>: <span class="string">"oauth"</span>,
+    <span class="string">"token"</span>: read_token_file()
+}).create()</pre>
+                    </div>
+                    <span class="tech-tag">Zero-Trust Security</span>
+                </div>
+            </div>
+
+            <div class="callout">
+                <h4>🔒 Security by Design</h4>
+                <p><strong>Default Isolation:</strong> SPCS containers cannot access the internet without explicit External Access Integration configuration. 
+                This zero-trust model ensures your data pipeline only connects to approved destinations, with full audit logging of all external communications. 
+                Internal Snowflake access uses short-lived OAuth tokens—no passwords or API keys stored in your container.</p>
+            </div>
+        </section>
+
         <!-- OpenFlow Future State -->
         <section class="section">
             <span class="section-label" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">Future Enhancement</span>
