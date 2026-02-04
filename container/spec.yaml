@@ -1,0 +1,127 @@
+# Snowpark Container Services Specification
+# ==========================================
+# This file defines the service configuration for the Canvas ETL container.
+# 
+# Usage:
+#   1. Push the Docker image to Snowflake registry first
+#   2. Create service using:
+#      CREATE SERVICE ... FROM SPECIFICATION $$ ... $$
+#
+# Reference:
+#   https://docs.snowflake.com/en/developer-guide/snowpark-container-services/specification-reference
+
+spec:
+  # Container definitions
+  containers:
+    - name: canvas-etl
+      # Image reference (update with your registry URL)
+      # Format: /<database>/<schema>/<repository>/<image>:<tag>
+      image: /demo_canvas_db/compute/canvas_images/canvas-etl:latest
+      
+      # Environment variables
+      env:
+        # Snowflake context
+        SNOWFLAKE_DATABASE: DEMO_CANVAS_DB
+        SNOWFLAKE_SCHEMA_RAW: RAW
+        SNOWFLAKE_SCHEMA_CURATED: CURATED
+        
+        # Application configuration
+        LOG_LEVEL: INFO
+        PYTHONUNBUFFERED: "1"
+        
+        # Feature flags
+        ENABLE_METRICS: "true"
+        ENABLE_TRACING: "false"
+      
+      # Resource allocation
+      resources:
+        requests:
+          # Minimum resources guaranteed
+          cpu: 0.5       # 0.5 vCPU
+          memory: 1Gi    # 1 GB RAM
+        limits:
+          # Maximum resources allowed
+          cpu: 2         # 2 vCPU
+          memory: 4Gi    # 4 GB RAM
+      
+      # Volume mounts for persistent/shared storage
+      volumeMounts:
+        - name: data-volume
+          mountPath: /app/data
+        - name: logs-volume
+          mountPath: /app/logs
+      
+      # Readiness probe - determines when container is ready to receive traffic
+      readinessProbe:
+        port: 8080
+        path: /health
+      
+      # Secrets (optional - for external credentials)
+      # secrets:
+      #   - snowflakeSecret:
+      #       objectName: MY_SECRET
+      #       secretKeyRef: password
+      #     envVarName: EXTERNAL_API_KEY
+  
+  # Volume definitions
+  volumes:
+    # Local ephemeral storage
+    - name: data-volume
+      source: local
+      size: 10Gi
+    
+    - name: logs-volume
+      source: local
+      size: 1Gi
+    
+    # Stage-backed storage (optional - for persistent data)
+    # - name: stage-volume
+    #   source: "@DEMO_CANVAS_DB.COMPUTE.CONTAINER_ARTIFACTS"
+    #   uid: 1000
+    #   gid: 1000
+  
+  # Service endpoints
+  endpoints:
+    # Main API endpoint
+    - name: etl-endpoint
+      port: 8080
+      public: false    # Internal only - accessible via service functions
+      protocol: HTTP
+    
+    # Metrics endpoint (optional)
+    # - name: metrics
+    #   port: 9090
+    #   public: false
+    #   protocol: HTTP
+
+# Service creation command:
+# 
+# CREATE SERVICE DEMO_CANVAS_DB.COMPUTE.CANVAS_ETL_SERVICE
+#   IN COMPUTE POOL DEMO_CANVAS_POOL
+#   FROM SPECIFICATION $$
+#   <paste spec here>
+#   $$
+#   MIN_INSTANCES = 1
+#   MAX_INSTANCES = 2
+#   EXTERNAL_ACCESS_INTEGRATIONS = (DEMO_EXTERNAL_ACCESS)
+#   COMMENT = 'Canvas data engineering ETL service';
+
+# Service management commands:
+#
+# -- Check status
+# SELECT SYSTEM$GET_SERVICE_STATUS('DEMO_CANVAS_DB.COMPUTE.CANVAS_ETL_SERVICE');
+#
+# -- View logs
+# SELECT * FROM TABLE(DEMO_CANVAS_DB.COMPUTE.CANVAS_ETL_SERVICE!GET_SERVICE_LOGS('canvas-etl', 100));
+#
+# -- Suspend service
+# ALTER SERVICE DEMO_CANVAS_DB.COMPUTE.CANVAS_ETL_SERVICE SUSPEND;
+#
+# -- Resume service
+# ALTER SERVICE DEMO_CANVAS_DB.COMPUTE.CANVAS_ETL_SERVICE RESUME;
+#
+# -- Scale service
+# ALTER SERVICE DEMO_CANVAS_DB.COMPUTE.CANVAS_ETL_SERVICE SET MIN_INSTANCES = 2, MAX_INSTANCES = 4;
+
+
+

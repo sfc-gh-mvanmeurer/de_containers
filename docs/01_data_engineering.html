@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Engineering Pipeline | Snowflake Architecture Demo</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --sf-blue: #29B5E8;
+            --sf-blue-dark: #11567F;
+            --sf-blue-darker: #0D2B45;
+            --sf-cyan: #00D4AA;
+            --sf-purple: #7C3AED;
+            --sf-navy: #1B1F3B;
+            --sf-white: #FFFFFF;
+            --sf-gray-100: #F8FAFC;
+            --sf-gray-200: #E2E8F0;
+            --sf-gray-400: #94A3B8;
+            --sf-gray-600: #475569;
+            --sf-gradient: linear-gradient(135deg, #29B5E8 0%, #11567F 50%, #7C3AED 100%);
+            --sf-gradient-dark: linear-gradient(135deg, #0D2B45 0%, #1B1F3B 100%);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--sf-gray-100);
+            color: var(--sf-navy);
+            line-height: 1.6;
+        }
+
+        /* Hero */
+        .hero {
+            background: var(--sf-gradient-dark);
+            color: var(--sf-white);
+            padding: 80px 40px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 80%;
+            height: 200%;
+            background: radial-gradient(ellipse, rgba(41, 181, 232, 0.15) 0%, transparent 70%);
+        }
+
+        .hero-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(41, 181, 232, 0.2);
+            border: 1px solid rgba(41, 181, 232, 0.3);
+            padding: 6px 14px;
+            border-radius: 100px;
+            margin-bottom: 24px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .hero h1 {
+            font-size: 52px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            background: linear-gradient(90deg, #FFFFFF 0%, #29B5E8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero .subtitle {
+            font-size: 20px;
+            color: var(--sf-gray-200);
+            max-width: 700px;
+            font-weight: 300;
+        }
+
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 60px 40px;
+        }
+
+        /* Section */
+        .section {
+            margin-bottom: 80px;
+        }
+
+        .section-label {
+            display: inline-block;
+            background: var(--sf-gradient);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+        }
+
+        .section h2 {
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--sf-navy);
+            margin-bottom: 12px;
+        }
+
+        .section .lead {
+            font-size: 18px;
+            color: var(--sf-gray-600);
+            max-width: 800px;
+            margin-bottom: 40px;
+        }
+
+        /* Architecture Diagram */
+        .pipeline-diagram {
+            background: white;
+            border-radius: 24px;
+            padding: 48px;
+            box-shadow: 0 4px 30px rgba(0,0,0,0.08);
+            margin: 40px 0;
+        }
+
+        .pipeline-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .pipeline-box {
+            background: var(--sf-gray-100);
+            border: 2px solid var(--sf-gray-200);
+            border-radius: 16px;
+            padding: 20px 28px;
+            text-align: center;
+            min-width: 160px;
+            transition: all 0.3s ease;
+        }
+
+        .pipeline-box:hover {
+            border-color: var(--sf-blue);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(41, 181, 232, 0.15);
+        }
+
+        .pipeline-box.highlight {
+            background: linear-gradient(135deg, rgba(41, 181, 232, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%);
+            border-color: var(--sf-blue);
+        }
+
+        .pipeline-box .icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+
+        .pipeline-box h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--sf-navy);
+            margin-bottom: 4px;
+        }
+
+        .pipeline-box p {
+            font-size: 11px;
+            color: var(--sf-gray-600);
+        }
+
+        .pipeline-arrow {
+            font-size: 24px;
+            color: var(--sf-blue);
+        }
+
+        .pipeline-arrow.down {
+            transform: rotate(90deg);
+            margin: 0 auto;
+            display: block;
+            text-align: center;
+        }
+
+        /* Dual Path */
+        .dual-path {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 32px;
+            align-items: start;
+            margin-top: 32px;
+        }
+
+        .path-column {
+            background: white;
+            border-radius: 20px;
+            padding: 32px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+
+        .path-column.sql { border-top: 4px solid var(--sf-cyan); }
+        .path-column.container { border-top: 4px solid var(--sf-purple); }
+
+        .path-column h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .path-column.sql h3 { color: var(--sf-cyan); }
+        .path-column.container h3 { color: var(--sf-purple); }
+
+        .path-column .desc {
+            color: var(--sf-gray-600);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .path-divider {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--sf-gray-400);
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .path-divider::before,
+        .path-divider::after {
+            content: '';
+            width: 2px;
+            height: 60px;
+            background: var(--sf-gray-200);
+        }
+
+        /* Feature List */
+        .feature-list {
+            list-style: none;
+        }
+
+        .feature-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid var(--sf-gray-100);
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 14px;
+            color: var(--sf-gray-600);
+        }
+
+        .feature-list li:last-child {
+            border-bottom: none;
+        }
+
+        .feature-list .check {
+            color: var(--sf-cyan);
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        /* Code Block */
+        .code-block {
+            background: var(--sf-navy);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 16px 0;
+            overflow-x: auto;
+        }
+
+        .code-block pre {
+            color: var(--sf-gray-200);
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        .code-block .keyword { color: var(--sf-purple); }
+        .code-block .function { color: var(--sf-cyan); }
+        .code-block .string { color: #F59E0B; }
+        .code-block .comment { color: var(--sf-gray-400); }
+
+        /* Cards Grid */
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 28px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.1);
+        }
+
+        .card-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--sf-gradient);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 16px;
+            font-size: 22px;
+        }
+
+        .card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--sf-navy);
+        }
+
+        .card p {
+            color: var(--sf-gray-600);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .tech-tag {
+            display: inline-block;
+            background: var(--sf-gray-100);
+            color: var(--sf-blue-dark);
+            padding: 4px 12px;
+            border-radius: 100px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        /* Callout */
+        .callout {
+            background: linear-gradient(135deg, rgba(0, 212, 170, 0.08) 0%, rgba(41, 181, 232, 0.08) 100%);
+            border-left: 4px solid var(--sf-cyan);
+            border-radius: 0 16px 16px 0;
+            padding: 24px 32px;
+            margin: 32px 0;
+        }
+
+        .callout h4 {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--sf-navy);
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .callout p {
+            color: var(--sf-gray-600);
+            font-size: 14px;
+        }
+
+        /* Comparison */
+        .comparison-box {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 4px 30px rgba(0,0,0,0.08);
+            margin: 40px 0;
+        }
+
+        .comparison-header {
+            background: var(--sf-gradient-dark);
+            color: white;
+            padding: 20px 32px;
+            font-weight: 600;
+        }
+
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .comparison-col {
+            padding: 28px 32px;
+        }
+
+        .comparison-col:first-child {
+            border-right: 1px solid var(--sf-gray-200);
+            background: rgba(41, 181, 232, 0.03);
+        }
+
+        .comparison-col h4 {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .comparison-col:first-child h4 { color: var(--sf-blue); }
+        .comparison-col:last-child h4 { color: #FF3621; }
+
+        .comparison-col ul {
+            list-style: none;
+        }
+
+        .comparison-col li {
+            padding: 8px 0;
+            font-size: 13px;
+            color: var(--sf-gray-600);
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .comparison-col:first-child li::before {
+            content: '✓';
+            color: var(--sf-cyan);
+            font-weight: bold;
+        }
+
+        .comparison-col:last-child li::before {
+            content: '✗';
+            color: #EF4444;
+            font-weight: bold;
+        }
+
+        /* Stats */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin: 40px 0;
+        }
+
+        .stat-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            background: var(--sf-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--sf-gray-600);
+            margin-top: 4px;
+        }
+
+        /* Footer */
+        footer {
+            background: var(--sf-gradient-dark);
+            color: white;
+            padding: 48px 40px;
+            text-align: center;
+        }
+
+        footer p {
+            color: var(--sf-gray-400);
+            font-size: 14px;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .hero h1 { font-size: 36px; }
+            .dual-path { grid-template-columns: 1fr; }
+            .path-divider { flex-direction: row; padding: 20px 0; }
+            .path-divider::before, .path-divider::after { width: 60px; height: 2px; }
+            .comparison-grid { grid-template-columns: 1fr; }
+            .comparison-col:first-child { border-right: none; border-bottom: 1px solid var(--sf-gray-200); }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <!-- Hero -->
+    <header class="hero">
+        <div class="hero-content">
+            <div class="badge">
+                <span>📊</span>
+                <span>PART 1 OF 2</span>
+            </div>
+            <h1>Data Engineering Pipeline</h1>
+            <p class="subtitle">
+                From raw Canvas LMS data to analytics-ready curated tables using 
+                Snowpark Container Services and SQL stored procedures.
+            </p>
+        </div>
+    </header>
+
+    <!-- Stats -->
+    <div class="container">
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-value">6</div>
+                <div class="stat-label">Raw Tables</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">6</div>
+                <div class="stat-label">Curated Tables</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">2</div>
+                <div class="stat-label">Processing Paths</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">0</div>
+                <div class="stat-label">External Tools</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Pipeline Overview -->
+        <section class="section">
+            <span class="section-label">Architecture</span>
+            <h2>End-to-End Pipeline</h2>
+            <p class="lead">
+                A medallion architecture with RAW → CURATED layers, processing JSON payloads 
+                through dimensional modeling into a star schema.
+            </p>
+
+            <div class="pipeline-diagram">
+                <div class="pipeline-row">
+                    <div class="pipeline-box">
+                        <div class="icon">🎓</div>
+                        <h4>Canvas LMS</h4>
+                        <p>Source System</p>
+                    </div>
+                    <span class="pipeline-arrow">→</span>
+                    <div class="pipeline-box highlight">
+                        <div class="icon">📥</div>
+                        <h4>RAW Schema</h4>
+                        <p>JSON Payloads</p>
+                    </div>
+                    <span class="pipeline-arrow">→</span>
+                    <div class="pipeline-box">
+                        <div class="icon">⚙️</div>
+                        <h4>Processing</h4>
+                        <p>SQL or SPCS</p>
+                    </div>
+                    <span class="pipeline-arrow">→</span>
+                    <div class="pipeline-box highlight">
+                        <div class="icon">✨</div>
+                        <h4>CURATED</h4>
+                        <p>Star Schema</p>
+                    </div>
+                    <span class="pipeline-arrow">→</span>
+                    <div class="pipeline-box">
+                        <div class="icon">📈</div>
+                        <h4>Analytics</h4>
+                        <p>Ready to Query</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Data Ingestion -->
+        <section class="section">
+            <span class="section-label">Stage 1</span>
+            <h2>Data Ingestion</h2>
+            <p class="lead">
+                Synthetic Canvas LMS data generated through Python stored procedures, 
+                stored as flexible JSON payloads in the RAW schema.
+            </p>
+
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-icon">📄</div>
+                    <h3>RAW_STUDENTS</h3>
+                    <p>Student profiles with demographics, major, classification, GPA, and enrollment status.</p>
+                    <span class="tech-tag">JSON Payload</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📚</div>
+                    <h3>RAW_COURSES</h3>
+                    <p>Course catalog with department, instructor, credit hours, delivery mode, and term.</p>
+                    <span class="tech-tag">JSON Payload</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🔗</div>
+                    <h3>RAW_ENROLLMENTS</h3>
+                    <p>Student-course registrations with enrollment state, grades, and completion status.</p>
+                    <span class="tech-tag">JSON Payload</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📝</div>
+                    <h3>RAW_ASSIGNMENTS</h3>
+                    <p>Course assignments with type, points, due dates, and submission requirements.</p>
+                    <span class="tech-tag">JSON Payload</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">✅</div>
+                    <h3>RAW_SUBMISSIONS</h3>
+                    <p>Student assignment submissions with scores, grades, late flags, and grader info.</p>
+                    <span class="tech-tag">JSON Payload</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📊</div>
+                    <h3>RAW_ACTIVITY_LOGS</h3>
+                    <p>Student engagement: page views, video watches, quiz attempts, and session data.</p>
+                    <span class="tech-tag">JSON Payload</span>
+                </div>
+            </div>
+
+            <div class="code-block">
+                <pre><span class="comment">-- Data stored as JSON string in VARCHAR column</span>
+<span class="keyword">INSERT INTO</span> RAW_STUDENTS (payload, file_name)
+<span class="keyword">VALUES</span> (
+    <span class="string">'{"student_id": "U26510729", "first_name": "Karen", "major": "Marketing", "gpa": 3.45}'</span>,
+    <span class="string">'synthetic_generator'</span>
+);
+
+<span class="comment">-- Extract with PARSE_JSON()</span>
+<span class="keyword">SELECT</span> 
+    <span class="function">PARSE_JSON</span>(payload):student_id::<span class="keyword">VARCHAR</span> <span class="keyword">AS</span> student_id,
+    <span class="function">PARSE_JSON</span>(payload):major::<span class="keyword">VARCHAR</span> <span class="keyword">AS</span> major
+<span class="keyword">FROM</span> RAW_STUDENTS;</pre>
+            </div>
+        </section>
+
+        <!-- Dual Path Processing -->
+        <section class="section">
+            <span class="section-label">Stage 2</span>
+            <h2>Dual-Path Processing</h2>
+            <p class="lead">
+                Choose your transformation approach: lightweight SQL procedures for simple ETL, 
+                or containerized Python for complex business logic.
+            </p>
+
+            <div class="dual-path">
+                <div class="path-column sql">
+                    <h3>⚡ SQL Path</h3>
+                    <p class="desc">Native SQL stored procedures with MERGE operations</p>
+                    
+                    <ul class="feature-list">
+                        <li><span class="check">✓</span> Zero infrastructure management</li>
+                        <li><span class="check">✓</span> Instant execution, no startup time</li>
+                        <li><span class="check">✓</span> PARSE_JSON() for payload extraction</li>
+                        <li><span class="check">✓</span> MERGE for efficient upserts</li>
+                        <li><span class="check">✓</span> Native Snowflake optimization</li>
+                    </ul>
+
+                    <div class="code-block">
+                        <pre><span class="keyword">CALL</span> PROC_PROCESS_RAW_STUDENTS();
+<span class="keyword">CALL</span> PROC_PROCESS_RAW_COURSES();
+<span class="keyword">CALL</span> PROC_PROCESS_RAW_ENROLLMENTS();</pre>
+                    </div>
+                </div>
+
+                <div class="path-divider">OR</div>
+
+                <div class="path-column container">
+                    <h3>🐳 Container Path</h3>
+                    <p class="desc">Snowpark Container Services with custom Python</p>
+                    
+                    <ul class="feature-list">
+                        <li><span class="check">✓</span> Full Python ecosystem (pandas, numpy)</li>
+                        <li><span class="check">✓</span> Custom Docker images</li>
+                        <li><span class="check">✓</span> FastAPI endpoints for orchestration</li>
+                        <li><span class="check">✓</span> GPU support for ML workloads</li>
+                        <li><span class="check">✓</span> Same governance as SQL</li>
+                    </ul>
+
+                    <div class="code-block">
+                        <pre><span class="keyword">SELECT</span> RUN_CANVAS_ETL(<span class="string">'STUDENTS'</span>);
+<span class="keyword">SELECT</span> RUN_CANVAS_ETL(<span class="string">'COURSES'</span>);
+<span class="keyword">SELECT</span> RUN_CANVAS_ETL(<span class="string">'ALL'</span>);</pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- SPCS Networking -->
+        <section class="section">
+            <span class="section-label" style="background: linear-gradient(135deg, var(--sf-purple) 0%, var(--sf-blue) 100%);">Deep Dive</span>
+            <h2>SPCS Networking & Security</h2>
+            <p class="lead">
+                Snowpark Container Services provides enterprise-grade isolation by default. 
+                External access requires explicit configuration through Network Rules and External Access Integrations.
+            </p>
+
+            <!-- Networking Diagram -->
+            <div style="background: var(--sf-gradient-dark); border-radius: 24px; padding: 40px; margin: 32px 0; color: white;">
+                <h4 style="font-size: 20px; font-weight: 600; margin-bottom: 24px; text-align: center;">Container Network Architecture</h4>
+                <div style="display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 16px; align-items: center; text-align: center;">
+                    <!-- External -->
+                    <div style="background: rgba(255,255,255,0.1); border-radius: 16px; padding: 20px;">
+                        <div style="font-size: 32px; margin-bottom: 8px;">🌐</div>
+                        <h5 style="font-size: 14px; font-weight: 600;">External APIs</h5>
+                        <p style="font-size: 11px; color: var(--sf-gray-400);">Canvas LMS<br/>SaaS Services</p>
+                    </div>
+                    <!-- Arrow with EAI -->
+                    <div>
+                        <div style="font-size: 12px; background: var(--sf-purple); padding: 4px 12px; border-radius: 20px; margin-bottom: 8px;">EAI</div>
+                        <div style="font-size: 20px;">⬅️➡️</div>
+                        <div style="font-size: 10px; color: var(--sf-gray-400); margin-top: 4px;">Network Rules</div>
+                    </div>
+                    <!-- SPCS Container -->
+                    <div style="background: linear-gradient(135deg, rgba(41, 181, 232, 0.3) 0%, rgba(124, 58, 237, 0.3) 100%); border: 2px solid var(--sf-blue); border-radius: 16px; padding: 20px;">
+                        <div style="font-size: 32px; margin-bottom: 8px;">🐳</div>
+                        <h5 style="font-size: 14px; font-weight: 600;">SPCS Container</h5>
+                        <p style="font-size: 11px; color: var(--sf-gray-200);">Your ETL Code<br/>Isolated by Default</p>
+                    </div>
+                    <!-- Arrow Internal -->
+                    <div>
+                        <div style="font-size: 12px; background: var(--sf-cyan); color: var(--sf-navy); padding: 4px 12px; border-radius: 20px; margin-bottom: 8px;">OAuth</div>
+                        <div style="font-size: 20px;">⬅️➡️</div>
+                        <div style="font-size: 10px; color: var(--sf-gray-400); margin-top: 4px;">Internal Token</div>
+                    </div>
+                    <!-- Snowflake -->
+                    <div style="background: rgba(255,255,255,0.1); border-radius: 16px; padding: 20px;">
+                        <div style="font-size: 32px; margin-bottom: 8px;">❄️</div>
+                        <h5 style="font-size: 14px; font-weight: 600;">Snowflake</h5>
+                        <p style="font-size: 11px; color: var(--sf-gray-400);">Tables, Stages<br/>Warehouses</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cards-grid">
+                <!-- Egress -->
+                <div class="card" style="border-top: 4px solid var(--sf-purple);">
+                    <div class="card-icon" style="background: linear-gradient(135deg, var(--sf-purple) 0%, var(--sf-blue) 100%);">➡️</div>
+                    <h3>Data Egress (Out)</h3>
+                    <p>Connect to external APIs (Canvas LMS, SaaS services) using Network Rules 
+                    and External Access Integrations. Explicit allowlisting required.</p>
+                    <div class="code-block" style="margin-top: 16px;">
+                        <pre style="font-size: 11px;"><span class="comment">-- 1. Define allowed destinations</span>
+<span class="keyword">CREATE</span> NETWORK RULE canvas_rule
+  TYPE = <span class="string">'HOST_PORT'</span>
+  MODE = <span class="string">'EGRESS'</span>
+  VALUE_LIST = (<span class="string">'demo.instructure.com:443'</span>);
+
+<span class="comment">-- 2. Create firewall policy</span>
+<span class="keyword">CREATE</span> EXTERNAL ACCESS INTEGRATION canvas_eai
+  ALLOWED_NETWORK_RULES = (canvas_rule)
+  ENABLED = <span class="keyword">TRUE</span>;</pre>
+                    </div>
+                    <span class="tech-tag">External Access Integration</span>
+                </div>
+
+                <!-- Ingress -->
+                <div class="card" style="border-top: 4px solid var(--sf-blue);">
+                    <div class="card-icon">⬅️</div>
+                    <h3>Data Ingress (In)</h3>
+                    <p>Expose service endpoints for external callers (webhooks, APIs). 
+                    Snowflake manages secure proxy with OAuth integration support.</p>
+                    <div class="code-block" style="margin-top: 16px;">
+                        <pre style="font-size: 11px;"><span class="comment">-- Service spec with public endpoint</span>
+spec:
+  endpoints:
+    - name: webhook-endpoint
+      port: 8080
+      <span class="keyword">public: true</span>  <span class="comment"># Exposes URL</span>
+  serviceRoles:
+    - name: ingress-role
+      endpoints:
+        - webhook-endpoint</pre>
+                    </div>
+                    <span class="tech-tag">Public Ingress</span>
+                </div>
+
+                <!-- Internal -->
+                <div class="card" style="border-top: 4px solid var(--sf-cyan);">
+                    <div class="card-icon" style="background: linear-gradient(135deg, var(--sf-cyan) 0%, var(--sf-blue) 100%);">🔐</div>
+                    <h3>Internal Snowflake Access</h3>
+                    <p>Containers automatically receive OAuth tokens for secure Snowflake access. 
+                    No credentials in code—authentication is handled by the platform.</p>
+                    <div class="code-block" style="margin-top: 16px;">
+                        <pre style="font-size: 11px;"><span class="comment"># Python: Auto-authentication in SPCS</span>
+<span class="keyword">from</span> snowflake.snowpark <span class="keyword">import</span> Session
+
+<span class="comment"># Token mounted at /snowflake/session/token</span>
+session = Session.builder.configs({
+    <span class="string">"authenticator"</span>: <span class="string">"oauth"</span>,
+    <span class="string">"token"</span>: read_token_file()
+}).create()</pre>
+                    </div>
+                    <span class="tech-tag">Zero-Trust Security</span>
+                </div>
+            </div>
+
+            <div class="callout">
+                <h4>🔒 Security by Design</h4>
+                <p><strong>Default Isolation:</strong> SPCS containers cannot access the internet without explicit External Access Integration configuration. 
+                This zero-trust model ensures your data pipeline only connects to approved destinations, with full audit logging of all external communications. 
+                Internal Snowflake access uses short-lived OAuth tokens—no passwords or API keys stored in your container.</p>
+            </div>
+        </section>
+
+        <!-- OpenFlow Future State -->
+        <section class="section">
+            <span class="section-label" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">Future Enhancement</span>
+            <h2>Snowflake OpenFlow</h2>
+            <p class="lead">
+                While this demo uses synthetic data generators, production deployments can leverage 
+                <strong>Snowflake OpenFlow</strong>—a managed integration service built on Apache NiFi—to extract 
+                live data from Canvas LMS via custom data pipelines.
+            </p>
+
+            <div class="openflow-highlight" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(41, 181, 232, 0.1) 100%); border: 2px solid #F59E0B; border-radius: 24px; padding: 40px; margin: 32px 0;">
+                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 40px; align-items: center;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 64px; margin-bottom: 16px;">🔄</div>
+                        <h3 style="font-size: 24px; font-weight: 700; color: var(--sf-navy); margin-bottom: 8px;">OpenFlow</h3>
+                        <p style="font-size: 14px; color: var(--sf-gray-600);">Built on Apache NiFi</p>
+                    </div>
+                    <div>
+                        <h4 style="font-size: 18px; font-weight: 600; color: var(--sf-navy); margin-bottom: 16px;">What is Snowflake OpenFlow?</h4>
+                        <p style="color: var(--sf-gray-600); font-size: 15px; margin-bottom: 20px;">
+                            OpenFlow is Snowflake's managed integration service that provides a low-code visual interface 
+                            with extensible processors to build custom data flows. While there's no pre-built Canvas LMS connector, 
+                            the <strong>InvokeHTTP</strong> processor enables direct REST API extraction from any source.
+                        </p>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
+                            <div style="background: white; border-radius: 12px; padding: 16px;">
+                                <div style="font-size: 20px; margin-bottom: 8px;">🔗</div>
+                                <h5 style="font-size: 14px; font-weight: 600; color: var(--sf-navy); margin-bottom: 4px;">InvokeHTTP Processor</h5>
+                                <p style="font-size: 12px; color: var(--sf-gray-600);">Call Canvas REST API endpoints for users, courses, grades, activity</p>
+                            </div>
+                            <div style="background: white; border-radius: 12px; padding: 16px;">
+                                <div style="font-size: 20px; margin-bottom: 8px;">🎨</div>
+                                <h5 style="font-size: 14px; font-weight: 600; color: var(--sf-navy); margin-bottom: 4px;">Visual Pipeline Builder</h5>
+                                <p style="font-size: 12px; color: var(--sf-gray-600);">Low-code canvas in Snowsight for drag-and-drop flow design</p>
+                            </div>
+                            <div style="background: white; border-radius: 12px; padding: 16px;">
+                                <div style="font-size: 20px; margin-bottom: 8px;">🔐</div>
+                                <h5 style="font-size: 14px; font-weight: 600; color: var(--sf-navy); margin-bottom: 4px;">External Access Integration</h5>
+                                <p style="font-size: 12px; color: var(--sf-gray-600);">Secure OAuth/API token management within Snowflake</p>
+                            </div>
+                            <div style="background: white; border-radius: 12px; padding: 16px;">
+                                <div style="font-size: 20px; margin-bottom: 8px;">📊</div>
+                                <h5 style="font-size: 14px; font-weight: 600; color: var(--sf-navy); margin-bottom: 4px;">Lineage & Monitoring</h5>
+                                <p style="font-size: 12px; color: var(--sf-gray-600);">Track execution, data lineage, and performance in Snowsight</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="cards-grid">
+                <div class="card" style="border-top: 4px solid #F59E0B;">
+                    <div class="card-icon" style="background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);">📥</div>
+                    <h3>Current State: Synthetic Data</h3>
+                    <p>This demo generates realistic Canvas LMS data using Python stored procedures 
+                    for demonstration purposes without requiring Canvas API access.</p>
+                    <span class="tech-tag">Demo Mode</span>
+                </div>
+                <div class="card" style="border-top: 4px solid var(--sf-cyan);">
+                    <div class="card-icon" style="background: linear-gradient(135deg, var(--sf-cyan) 0%, var(--sf-blue) 100%);">🚀</div>
+                    <h3>Future State: OpenFlow</h3>
+                    <p>Production deployment would use OpenFlow connectors to extract live data 
+                    from Canvas LMS APIs, enabling real-time analytics on actual student data.</p>
+                    <span class="tech-tag">Production Ready</span>
+                </div>
+                <div class="card" style="border-top: 4px solid var(--sf-purple);">
+                    <div class="card-icon">🔗</div>
+                    <h3>Same Pipeline, Real Data</h3>
+                    <p>The transformation layer (SQL procedures + SPCS) and semantic model remain 
+                    identical—only the data source changes from synthetic to live.</p>
+                    <span class="tech-tag">Seamless Transition</span>
+                </div>
+            </div>
+
+            <div class="callout" style="border-left-color: #F59E0B; background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(217, 119, 6, 0.08) 100%);">
+                <h4>💡 Why OpenFlow Matters for Higher Ed</h4>
+                <p><strong>Eliminate ETL Tool Sprawl:</strong> Universities typically use Fivetran, Airbyte, or custom scripts 
+                to extract from Canvas, Banner, Workday, etc. OpenFlow consolidates all extraction into Snowflake itself, 
+                reducing costs, complexity, and security surface area. Data never leaves the Snowflake security perimeter.</p>
+            </div>
+
+            <!-- OpenFlow Pipeline Steps -->
+            <div style="background: white; border-radius: 20px; padding: 32px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin: 32px 0;">
+                <h4 style="font-size: 18px; font-weight: 600; color: var(--sf-navy); margin-bottom: 24px;">Canvas LMS Integration Pipeline</h4>
+                <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; text-align: center;">
+                    <div style="background: var(--sf-gray-100); border-radius: 12px; padding: 16px;">
+                        <div style="font-size: 24px; margin-bottom: 8px;">1️⃣</div>
+                        <h5 style="font-size: 12px; font-weight: 600; color: var(--sf-navy);">InvokeHTTP</h5>
+                        <p style="font-size: 10px; color: var(--sf-gray-600);">Call Canvas API<br/>/api/v1/users</p>
+                    </div>
+                    <div style="background: var(--sf-gray-100); border-radius: 12px; padding: 16px;">
+                        <div style="font-size: 24px; margin-bottom: 8px;">2️⃣</div>
+                        <h5 style="font-size: 12px; font-weight: 600; color: var(--sf-navy);">EvaluateJsonPath</h5>
+                        <p style="font-size: 10px; color: var(--sf-gray-600);">Parse JSON<br/>response</p>
+                    </div>
+                    <div style="background: var(--sf-gray-100); border-radius: 12px; padding: 16px;">
+                        <div style="font-size: 24px; margin-bottom: 8px;">3️⃣</div>
+                        <h5 style="font-size: 12px; font-weight: 600; color: var(--sf-navy);">TransformRecord</h5>
+                        <p style="font-size: 10px; color: var(--sf-gray-600);">Map fields to<br/>schema</p>
+                    </div>
+                    <div style="background: var(--sf-gray-100); border-radius: 12px; padding: 16px;">
+                        <div style="font-size: 24px; margin-bottom: 8px;">4️⃣</div>
+                        <h5 style="font-size: 12px; font-weight: 600; color: var(--sf-navy);">PutFile</h5>
+                        <p style="font-size: 10px; color: var(--sf-gray-600);">Stage to<br/>internal stage</p>
+                    </div>
+                    <div style="background: linear-gradient(135deg, rgba(41, 181, 232, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%); border-radius: 12px; padding: 16px; border: 2px solid var(--sf-blue);">
+                        <div style="font-size: 24px; margin-bottom: 8px;">5️⃣</div>
+                        <h5 style="font-size: 12px; font-weight: 600; color: var(--sf-navy);">COPY INTO</h5>
+                        <p style="font-size: 10px; color: var(--sf-gray-600);">Load to<br/>RAW tables</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="code-block">
+                <pre><span class="comment">-- Step 1: Create External Access Integration for Canvas domain</span>
+<span class="keyword">CREATE OR REPLACE</span> EXTERNAL ACCESS INTEGRATION canvas_api_access
+    <span class="keyword">ALLOWED_NETWORK_RULES</span> = (canvas_network_rule)
+    <span class="keyword">ALLOWED_AUTHENTICATION_SECRETS</span> = (canvas_api_token)
+    <span class="keyword">ENABLED</span> = <span class="keyword">TRUE</span>;
+
+<span class="comment">-- Step 2: Configure InvokeHTTP processor in OpenFlow canvas</span>
+<span class="comment">-- Processor: InvokeHTTP</span>
+<span class="comment">--   URL: https://demo.instructure.com/api/v1/users</span>
+<span class="comment">--   Method: GET</span>
+<span class="comment">--   Authorization: Bearer ${canvas_api_token}</span>
+
+<span class="comment">-- Step 3: Final load to Snowflake (PutDatabaseRecord or COPY INTO)</span>
+<span class="keyword">COPY INTO</span> RAW.RAW_STUDENTS
+<span class="keyword">FROM</span> @canvas_stage/users/
+<span class="keyword">FILE_FORMAT</span> = (TYPE = <span class="string">'JSON'</span>)
+<span class="keyword">MATCH_BY_COLUMN_NAME</span> = CASE_INSENSITIVE;</pre>
+            </div>
+        </section>
+
+        <!-- Curated Layer -->
+        <section class="section">
+            <span class="section-label">Stage 3</span>
+            <h2>Curated Star Schema</h2>
+            <p class="lead">
+                Dimensional model optimized for analytics: dimension tables for entities, 
+                fact tables for transactions, and pre-computed aggregations.
+            </p>
+
+            <div class="cards-grid">
+                <div class="card">
+                    <div class="card-icon">👤</div>
+                    <h3>DIM_STUDENTS</h3>
+                    <p>Student dimension with surrogate keys, SCD Type 1 for current state.</p>
+                    <span class="tech-tag">Dimension</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📖</div>
+                    <h3>DIM_COURSES</h3>
+                    <p>Course dimension with department hierarchy and instructor details.</p>
+                    <span class="tech-tag">Dimension</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📋</div>
+                    <h3>DIM_ASSIGNMENTS</h3>
+                    <p>Assignment dimension linked to courses with grading configuration.</p>
+                    <span class="tech-tag">Dimension</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🎫</div>
+                    <h3>FACT_ENROLLMENTS</h3>
+                    <p>Enrollment fact with foreign keys to students and courses, plus grades.</p>
+                    <span class="tech-tag">Fact</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📬</div>
+                    <h3>FACT_SUBMISSIONS</h3>
+                    <p>Submission fact with scores, timestamps, and late/missing flags.</p>
+                    <span class="tech-tag">Fact</span>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📱</div>
+                    <h3>FACT_ACTIVITY_LOGS</h3>
+                    <p>Activity fact for engagement tracking: views, duration, devices.</p>
+                    <span class="tech-tag">Fact</span>
+                </div>
+            </div>
+
+            <div class="callout">
+                <h4>💡 Why This Matters</h4>
+                <p>The star schema enables efficient joins, supports drill-down analysis, and provides 
+                the foundation for semantic modeling. Pre-aggregated tables (AGG_STUDENT_COURSE_PERFORMANCE, 
+                AGG_COURSE_ANALYTICS) accelerate common queries.</p>
+            </div>
+        </section>
+
+        <!-- Comparison -->
+        <section class="section">
+            <span class="section-label">Comparison</span>
+            <h2>Snowflake vs. Databricks</h2>
+            <p class="lead">
+                How Snowflake's unified approach compares to Databricks for data engineering workloads.
+            </p>
+
+            <div class="comparison-box">
+                <div class="comparison-header">
+                    Data Engineering Capabilities
+                </div>
+                <div class="comparison-grid">
+                    <div class="comparison-col">
+                        <h4>❄️ Snowflake</h4>
+                        <ul>
+                            <li>Native container services (SPCS)—no K8s required</li>
+                            <li>Zero-copy cloning for instant test environments</li>
+                            <li>Time travel built-in (up to 90 days)</li>
+                            <li>True separation of storage and compute</li>
+                            <li>Per-second billing, auto-suspend</li>
+                            <li>Single governance model for all workloads</li>
+                            <li>No cluster management or startup delays</li>
+                        </ul>
+                    </div>
+                    <div class="comparison-col">
+                        <h4>🔶 Databricks</h4>
+                        <ul>
+                            <li>Requires external container orchestration</li>
+                            <li>Delta Lake cloning has storage overhead</li>
+                            <li>Time travel requires Delta Lake configuration</li>
+                            <li>Coupled compute with Spark clusters</li>
+                            <li>Complex pricing across DBUs and SKUs</li>
+                            <li>Unity Catalog separate from compute governance</li>
+                            <li>Cluster startup time (2-5 minutes typical)</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <div class="callout">
+                <h4>🏆 Key Differentiator: Snowpark Container Services</h4>
+                <p><strong>Databricks requires external Kubernetes clusters</strong> for custom container workloads, 
+                adding operational complexity, security concerns, and data egress costs. Snowflake SPCS runs 
+                containers natively within the platform—same security, same governance, no data movement.</p>
+            </div>
+        </section>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <p>Demo Canvas Analytics Demo | Part 1: Data Engineering</p>
+        <p style="margin-top: 8px; opacity: 0.7;">
+            Continue to Part 2: Snowflake Intelligence →
+        </p>
+    </footer>
+</body>
+</html>
+

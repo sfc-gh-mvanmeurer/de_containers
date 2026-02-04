@@ -1,0 +1,135 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#29B5E8', 'primaryTextColor': '#fff', 'primaryBorderColor': '#1a8cb8', 'lineColor': '#666', 'secondaryColor': '#006699', 'tertiaryColor': '#f0f0f0'}}}%%
+
+flowchart TB
+    subgraph Sources["📥 Data Sources"]
+        Canvas[("Canvas LMS API")]
+        Files[("CSV/JSON Files")]
+        Synthetic["Synthetic Data Generator<br/>(Stored Procedures)"]
+    end
+
+    subgraph RawLayer["🗄️ RAW Layer (Landing Zone)"]
+        RAW_STUDENTS[("RAW_STUDENTS<br/>VARIANT payload")]
+        RAW_COURSES[("RAW_COURSES<br/>VARIANT payload")]
+        RAW_ENROLLMENTS[("RAW_ENROLLMENTS<br/>VARIANT payload")]
+        RAW_ASSIGNMENTS[("RAW_ASSIGNMENTS<br/>VARIANT payload")]
+        RAW_SUBMISSIONS[("RAW_SUBMISSIONS<br/>VARIANT payload")]
+        RAW_ACTIVITY[("RAW_ACTIVITY_LOGS<br/>VARIANT payload")]
+    end
+
+    subgraph Processing["⚙️ Processing Pathways"]
+        subgraph PathA["Pathway A: SQL-Based Processing"]
+            direction TB
+            Tasks["Snowflake Tasks<br/>(Scheduled)"]
+            SQLProcs["SQL Stored Procedures<br/>PROC_PROCESS_RAW_*"]
+            Warehouse["Virtual Warehouse<br/>(DEMO_TRANSFORM_WH)"]
+        end
+        
+        subgraph PathB["Pathway B: Container-Based Processing"]
+            direction TB
+            ServiceFunc["Service Functions<br/>RUN_CANVAS_ETL()"]
+            SPCS["Snowpark Container Services<br/>(Python FastAPI)"]
+            ComputePool["Compute Pool<br/>(DEMO_CANVAS_POOL)"]
+        end
+    end
+
+    subgraph CuratedLayer["✨ CURATED Layer (Analytics Ready)"]
+        subgraph Dimensions["Dimension Tables"]
+            DIM_STUDENTS[("DIM_STUDENTS")]
+            DIM_COURSES[("DIM_COURSES")]
+            DIM_ASSIGNMENTS[("DIM_ASSIGNMENTS")]
+        end
+        
+        subgraph Facts["Fact Tables"]
+            FACT_ENROLLMENTS[("FACT_ENROLLMENTS")]
+            FACT_SUBMISSIONS[("FACT_SUBMISSIONS")]
+            FACT_ACTIVITY[("FACT_ACTIVITY_LOGS")]
+        end
+        
+        subgraph Aggregates["Aggregation Tables"]
+            AGG_PERFORMANCE[("AGG_STUDENT_COURSE<br/>_PERFORMANCE")]
+            AGG_ANALYTICS[("AGG_COURSE<br/>_ANALYTICS")]
+        end
+    end
+
+    subgraph Consumers["📊 Data Consumers"]
+        Dashboards["Snowsight Dashboards"]
+        Analysts["Data Analysts"]
+        ML["ML Models"]
+        BI["BI Tools"]
+    end
+
+    subgraph Monitoring["📈 Monitoring & Auditing"]
+        CostViews["Cost Auditing Views<br/>VW_WAREHOUSE_DAILY_COSTS<br/>VW_COMPUTE_POOL_USAGE"]
+        ETLLog["ETL_RUN_LOG"]
+        DQLog["DATA_QUALITY_LOG"]
+    end
+
+    %% Data Flow - Sources to Raw
+    Canvas --> RAW_STUDENTS
+    Canvas --> RAW_COURSES
+    Canvas --> RAW_ENROLLMENTS
+    Files --> RAW_ASSIGNMENTS
+    Files --> RAW_SUBMISSIONS
+    Synthetic --> RAW_STUDENTS
+    Synthetic --> RAW_COURSES
+    Synthetic --> RAW_ACTIVITY
+
+    %% Pathway A: SQL Processing
+    RAW_STUDENTS --> Tasks
+    RAW_COURSES --> Tasks
+    Tasks --> SQLProcs
+    SQLProcs --> Warehouse
+    Warehouse --> DIM_STUDENTS
+    Warehouse --> DIM_COURSES
+
+    %% Pathway B: Container Processing
+    RAW_STUDENTS --> ServiceFunc
+    RAW_COURSES --> ServiceFunc
+    RAW_ENROLLMENTS --> ServiceFunc
+    ServiceFunc --> SPCS
+    SPCS --> ComputePool
+    ComputePool --> DIM_STUDENTS
+    ComputePool --> DIM_COURSES
+    ComputePool --> FACT_ENROLLMENTS
+    ComputePool --> FACT_SUBMISSIONS
+
+    %% Curated to Aggregates
+    DIM_STUDENTS --> AGG_PERFORMANCE
+    DIM_COURSES --> AGG_PERFORMANCE
+    FACT_ENROLLMENTS --> AGG_PERFORMANCE
+    FACT_SUBMISSIONS --> AGG_PERFORMANCE
+    DIM_COURSES --> AGG_ANALYTICS
+    FACT_ENROLLMENTS --> AGG_ANALYTICS
+
+    %% Curated to Consumers
+    AGG_PERFORMANCE --> Dashboards
+    AGG_ANALYTICS --> Dashboards
+    DIM_STUDENTS --> Analysts
+    DIM_COURSES --> Analysts
+    FACT_SUBMISSIONS --> ML
+    AGG_ANALYTICS --> BI
+
+    %% Monitoring
+    Warehouse --> CostViews
+    ComputePool --> CostViews
+    SQLProcs --> ETLLog
+    SPCS --> ETLLog
+    SQLProcs --> DQLog
+
+    %% Styling
+    classDef sourceStyle fill:#4CAF50,stroke:#2E7D32,color:#fff
+    classDef rawStyle fill:#FF9800,stroke:#EF6C00,color:#fff
+    classDef sqlStyle fill:#2196F3,stroke:#1565C0,color:#fff
+    classDef containerStyle fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    classDef curatedStyle fill:#29B5E8,stroke:#1a8cb8,color:#fff
+    classDef consumerStyle fill:#607D8B,stroke:#37474F,color:#fff
+    classDef monitorStyle fill:#795548,stroke:#4E342E,color:#fff
+
+    class Canvas,Files,Synthetic sourceStyle
+    class RAW_STUDENTS,RAW_COURSES,RAW_ENROLLMENTS,RAW_ASSIGNMENTS,RAW_SUBMISSIONS,RAW_ACTIVITY rawStyle
+    class Tasks,SQLProcs,Warehouse sqlStyle
+    class ServiceFunc,SPCS,ComputePool containerStyle
+    class DIM_STUDENTS,DIM_COURSES,DIM_ASSIGNMENTS,FACT_ENROLLMENTS,FACT_SUBMISSIONS,FACT_ACTIVITY,AGG_PERFORMANCE,AGG_ANALYTICS curatedStyle
+    class Dashboards,Analysts,ML,BI consumerStyle
+    class CostViews,ETLLog,DQLog monitorStyle
+

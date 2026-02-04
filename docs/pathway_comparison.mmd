@@ -1,0 +1,86 @@
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#29B5E8'}}}%%
+
+flowchart LR
+    subgraph Legend["🔑 Legend"]
+        direction TB
+        L1["🔵 SQL Pathway - Fast, Simple, Cost-Effective"]
+        L2["🟣 Container Pathway - Flexible, Python, ML-Ready"]
+    end
+
+    subgraph PathwayA["🔵 PATHWAY A: SQL-Based Processing"]
+        direction TB
+        
+        A1["1️⃣ Scheduled Task Triggers"]
+        A2["2️⃣ SQL Stored Procedure<br/>PROC_PROCESS_RAW_STUDENTS()"]
+        A3["3️⃣ Virtual Warehouse Executes<br/>MERGE INTO CURATED.DIM_*"]
+        A4["4️⃣ Data Lands in Curated Tables"]
+        
+        A1 --> A2 --> A3 --> A4
+        
+        subgraph A_Pros["✅ Pros"]
+            AP1["Fast execution"]
+            AP2["Lower cost"]
+            AP3["Native SQL"]
+            AP4["No container overhead"]
+        end
+        
+        subgraph A_Cons["❌ Cons"]
+            AC1["Limited to SQL logic"]
+            AC2["No external libraries"]
+            AC3["Less flexible"]
+        end
+    end
+
+    subgraph PathwayB["🟣 PATHWAY B: Container-Based Processing"]
+        direction TB
+        
+        B1["1️⃣ Service Function Called<br/>RUN_CANVAS_ETL('STUDENTS')"]
+        B2["2️⃣ HTTP Request to Container<br/>FastAPI Endpoint"]
+        B3["3️⃣ Python Code Executes<br/>Snowpark DataFrame API"]
+        B4["4️⃣ Data Lands in Curated Tables"]
+        
+        B1 --> B2 --> B3 --> B4
+        
+        subgraph B_Pros["✅ Pros"]
+            BP1["Full Python ecosystem"]
+            BP2["ML/AI libraries available"]
+            BP3["Complex transformations"]
+            BP4["External API calls"]
+        end
+        
+        subgraph B_Cons["❌ Cons"]
+            BC1["Container startup time"]
+            BC2["Higher compute cost"]
+            BC3["More complexity"]
+        end
+    end
+
+    subgraph UseCases["📋 When to Use Each"]
+        direction TB
+        
+        subgraph UseSQL["Use SQL Pathway For:"]
+            US1["• Simple MERGE/INSERT operations"]
+            US2["• High-frequency scheduled jobs"]
+            US3["• Cost-sensitive workloads"]
+            US4["• Standard ETL patterns"]
+        end
+        
+        subgraph UseContainer["Use Container Pathway For:"]
+            UC1["• ML model inference"]
+            UC2["• Complex Python logic"]
+            UC3["• External API integration"]
+            UC4["• Custom data validation"]
+        end
+    end
+
+    %% Styling
+    classDef sqlStyle fill:#2196F3,stroke:#1565C0,color:#fff
+    classDef containerStyle fill:#9C27B0,stroke:#6A1B9A,color:#fff
+    classDef prosStyle fill:#4CAF50,stroke:#2E7D32,color:#fff
+    classDef consStyle fill:#f44336,stroke:#c62828,color:#fff
+
+    class A1,A2,A3,A4 sqlStyle
+    class B1,B2,B3,B4 containerStyle
+    class AP1,AP2,AP3,AP4,BP1,BP2,BP3,BP4 prosStyle
+    class AC1,AC2,AC3,BC1,BC2,BC3 consStyle
+
