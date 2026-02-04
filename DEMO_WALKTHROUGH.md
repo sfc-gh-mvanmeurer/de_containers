@@ -7,7 +7,7 @@
 ### Prerequisites Checklist
 
 - [ ] Snowflake account with ACCOUNTADMIN access
-- [ ] GitHub repository at `https://github.com/sfc-gh-mvanmeurer/de_containers`
+- [ ] GitHub repository (your fork of this repo)
 - [ ] GitHub Secrets configured (see below)
 
 ---
@@ -306,7 +306,7 @@ LIMIT 20;
 
 ### Configure GitHub Repository
 
-1. Push code to `https://github.com/sfc-gh-mvanmeurer/de_containers`
+1. Push code to your GitHub repository
 
 2. Add Repository Secrets (Settings → Secrets → Actions):
 
